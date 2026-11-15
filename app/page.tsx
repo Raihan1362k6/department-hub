@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ElectricalBackground from "./ElectricalBackground";
 import {
+  ArrowLeft,
   ArrowUpRight,
   Bell,
   BookOpen,
@@ -343,6 +344,17 @@ export default function Home() {
     (subjectFolders[semester] ?? []).forEach((name) => values.add(name));
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [materials, semester, subjectFolders]);
+
+  const filteredSemesterFolders = useMemo(() => {
+    if (!query.trim()) return semesterSubjectFolders;
+    const q = query.toLowerCase();
+    return semesterSubjectFolders.filter((folderName) => {
+      if (folderName.toLowerCase().includes(q)) return true;
+      return materials.some(
+        (m) => m.semester === semester && m.subject === folderName && m.title.toLowerCase().includes(q)
+      );
+    });
+  }, [semesterSubjectFolders, query, materials, semester]);
 
   const subjects = useMemo(
     () => ["All subjects", ...semesterSubjectFolders],
@@ -3230,99 +3242,29 @@ export default function Home() {
               </div>
               {syllabusError && <div className="modal-notice error" role="alert">{syllabusError}</div>}
 
-              <div className="filter-panel">
-                <div className="semester-tabs">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                    <button key={n} className={semester === n ? "selected" : ""} onClick={() => { setSemester(n); setSubject("All subjects"); setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
-                      Sem {n}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="filter-row">
-                  <div className="search-box">
-                    <Search size={18} />
-                    <input placeholder="Search notes or lectures..." value={query} onChange={(e) => setQuery(e.target.value)} />
-                  </div>
-                  <button className="secondary-btn" type="button" onClick={handleAddSubject}>
-                    <Plus size={15} /> Add subject
-                  </button>
-                </div>
-              </div>
-
-              {activeSubjectFolder ? null : (
-              <div className="subject-folder-grid">
-                {semesterSubjectFolders.length === 0 ? (
-                  <Empty icon={<BookOpen />} title="No subject folders yet" text="Add the first subject for this semester to begin sharing notes and links." />
-                ) : (
-                  semesterSubjectFolders.map((folderName) => {
-                    const folderMaterials = materials.filter((material) => material.semester === semester && material.subject === folderName);
-                    const isActive = activeSubjectFolder === folderName;
-                    return (
-                      <div
-                        className={`subject-folder-card ${isActive ? "active" : ""}`}
-                        key={folderName}
-                        onClick={() => { setActiveSubjectFolder(folderName); setActiveCourseSubFolder(null); }}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setActiveSubjectFolder(folderName);
+              {activeSubjectFolder ? (
+                <div className="subject-detail-panel">
+                  <div className="subject-detail-header">
+                    <div>
+                      <span className="eyebrow">SEMESTER {semester} · {activeCourseSubFolder ? activeSubjectFolder : "COURSE FOLDER"}</span>
+                      <h2>{activeCourseSubFolder ?? activeSubjectFolder}</h2>
+                    </div>
+                    <div className="pyq-course-actions">
+                      <button
+                        className="secondary-btn"
+                        type="button"
+                        onClick={() => {
+                          if (activeCourseSubFolder) {
+                            setActiveCourseSubFolder(null);
+                          } else {
+                            setActiveSubjectFolder(null);
                             setActiveCourseSubFolder(null);
                           }
                         }}
                       >
-                        <div className="subject-folder-head">
-                          <div className="subject-folder-icon">{folderName.charAt(0).toUpperCase()}</div>
-                          <div>
-                            <strong>{folderName}</strong>
-                            <small>{folderMaterials.length} resource{folderMaterials.length === 1 ? "" : "s"}</small>
-                          </div>
-                        </div>
-
-                        {canManageCourseFolders && (
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto" }} onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              className="secondary-btn"
-                              onClick={() => openEditCourseFolder(folderName)}
-                              style={{ padding: "7px 10px", fontSize: 11 }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary-btn"
-                              onClick={() => openDeleteCourseFolder(folderName)}
-                              style={{ padding: "7px 10px", fontSize: 11, borderColor: "#f6d7d7", color: "#ae2a2a" }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              )}
-
-              {activeSubjectFolder && (
-              <div className="subject-detail-panel">
-                  <div className="subject-detail-header">
-                    <div>
-                      <span className="eyebrow">COURSE FOLDER{activeCourseSubFolder ? ` · ${activeCourseSubFolder.toUpperCase()}` : ""}</span>
-                      <h2>{activeSubjectFolder}</h2>
-                    </div>
-                    <div className="pyq-course-actions">
-                      <button className="secondary-btn" type="button" onClick={() => {
-                        if (activeCourseSubFolder) setActiveCourseSubFolder(null);
-                        else { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }
-                      }}>
-                        {activeCourseSubFolder ? "Back to folders" : "Back to courses"}
+                        <ArrowLeft size={15} /> {activeCourseSubFolder ? "Back to folders" : "Back to courses"}
                       </button>
-                      {activeCourseSubFolder !== "Syllabus" && (
+                      {activeCourseSubFolder && activeCourseSubFolder !== "Syllabus" && canManageMaterials && (
                         <button className="primary-btn" type="button" onClick={() => openShareMaterialForSubject(activeSubjectFolder)}>
                           <Plus size={15} /> Share material
                         </button>
@@ -3465,7 +3407,88 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-          )}
+              ) : (
+                <>
+                  <div className="filter-panel">
+                    <div className="semester-tabs">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                        <button key={n} className={semester === n ? "selected" : ""} onClick={() => { setSemester(n); setSubject("All subjects"); setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
+                          Sem {n}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="filter-row">
+                      <div className="search-box">
+                        <Search size={18} />
+                        <input placeholder="Search notes or lectures..." value={query} onChange={(e) => setQuery(e.target.value)} />
+                      </div>
+                      <button className="secondary-btn" type="button" onClick={handleAddSubject}>
+                        <Plus size={15} /> Add subject
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="subject-folder-grid">
+                    {filteredSemesterFolders.length === 0 ? (
+                      <Empty
+                        icon={<BookOpen />}
+                        title={query ? "No matching courses" : "No subject folders yet"}
+                        text={query ? "Try a different search term or clear the search bar." : "Add the first subject for this semester to begin sharing notes and links."}
+                      />
+                    ) : (
+                      filteredSemesterFolders.map((folderName) => {
+                        const folderMaterials = materials.filter((material) => material.semester === semester && material.subject === folderName);
+                        return (
+                          <div
+                            className="subject-folder-card"
+                            key={folderName}
+                            onClick={() => { setActiveSubjectFolder(folderName); setActiveCourseSubFolder(null); }}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setActiveSubjectFolder(folderName);
+                                setActiveCourseSubFolder(null);
+                              }
+                            }}
+                          >
+                            <div className="subject-folder-head">
+                              <div className="subject-folder-icon">{folderName.charAt(0).toUpperCase()}</div>
+                              <div>
+                                <strong>{folderName}</strong>
+                                <small>{folderMaterials.length} resource{folderMaterials.length === 1 ? "" : "s"}</small>
+                              </div>
+                            </div>
+
+                            {canManageCourseFolders && (
+                              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto" }} onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className="secondary-btn"
+                                  onClick={() => openEditCourseFolder(folderName)}
+                                  style={{ padding: "7px 10px", fontSize: 11 }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary-btn"
+                                  onClick={() => openDeleteCourseFolder(folderName)}
+                                  style={{ padding: "7px 10px", fontSize: 11, borderColor: "#f6d7d7", color: "#ae2a2a" }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
 

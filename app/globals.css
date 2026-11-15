@@ -170,3 +170,26 @@
   white-space: nowrap;
 }
 
+.subject-detail-header .secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+.subject-detail-header .secondary-btn:hover {
+  background: #f4f2ff;
+  border-color: #d1ccff;
+  color: var(--purple);
+}
+
+.theme-dark .subject-detail-header .secondary-btn:hover {
+  background: rgba(138, 123, 255, 0.16);
+  border-color: var(--purple);
+  color: var(--purple);
+}
+
+

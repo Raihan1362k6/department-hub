@@ -3303,6 +3303,7 @@ export default function Home() {
                 </div>
               </div>
 
+              {activeSubjectFolder ? null : (
               <div className="subject-folder-grid">
                 {semesterSubjectFolders.length === 0 ? (
                   <Empty icon={<BookOpen />} title="No subject folders yet" text="Add the first subject for this semester to begin sharing notes and links." />
@@ -3358,25 +3359,22 @@ export default function Home() {
                   })
                 )}
               </div>
+              )}
 
               {activeSubjectFolder && (
-                <div className="course-folder-overlay" onClick={() => { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
-                  <div className="course-folder-window" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-                    <button className="course-folder-close" type="button" aria-label="Close course folder" onClick={() => { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
-                      <X size={18} />
-                    </button>
-                    <div className="subject-detail-panel">
+              <div className="subject-detail-panel">
                   <div className="subject-detail-header">
                     <div>
                       <span className="eyebrow">COURSE FOLDER{activeCourseSubFolder ? ` · ${activeCourseSubFolder.toUpperCase()}` : ""}</span>
                       <h2>{activeSubjectFolder}</h2>
                     </div>
                     <div className="pyq-course-actions">
-                      {activeCourseSubFolder && (
-                        <button className="secondary-btn" type="button" onClick={() => setActiveCourseSubFolder(null)}>
-                          Back to folders
-                        </button>
-                      )}
+                      <button className="secondary-btn" type="button" onClick={() => {
+                        if (activeCourseSubFolder) setActiveCourseSubFolder(null);
+                        else { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }
+                      }}>
+                        {activeCourseSubFolder ? "Back to folders" : "Back to courses"}
+                      </button>
                       {activeCourseSubFolder !== "Syllabus" && (
                         <button className="primary-btn" type="button" onClick={() => openShareMaterialForSubject(activeSubjectFolder)}>
                           <Plus size={15} /> Share material
@@ -3520,9 +3518,6 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-              </div>
-              </div>
-            </div>
           )}
             </>
           )}

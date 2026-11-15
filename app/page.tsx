@@ -2686,7 +2686,7 @@ export default function Home() {
     }
 
     const newItem: Material = {
-      id: `m-${Date.now()}`,
+      id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `m-${Date.now()}`,
       title,
       course_name: subject,
       semester: semesterValue,
@@ -2712,6 +2712,9 @@ export default function Home() {
         const result = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(result?.error || "Could not save the shared material.");
+        }
+        if (result?.material?.id) {
+          newItem.id = result.material.id;
         }
       } catch (error) {
         showNotice(error instanceof Error ? error.message : "Could not save the shared material.", "error");

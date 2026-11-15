@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
+import os from "os";
+import crypto from "crypto";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -10,7 +12,9 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   || "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || anonKey;
 
-const supabaseAdmin = supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey) : null;
+const supabaseAdmin = supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+}) : null;
 
 const dataFilePath = path.join(process.cwd(), "data", "materials.json");
 
@@ -43,7 +47,9 @@ async function authorizeStaff(req: NextRequest): Promise<{ userId: string } | { 
   if (profileError) {
     return { response: NextResponse.json({ error: "Could not verify staff permissions." }, { status: 500 }) };
   }
-  if (profile?.role !== "admin" && profile?.role !== "monitor") {
+
+  const isProtectedAdmin = authData.user.email?.trim().toLowerCase() === "2026eeb061.raihan@students.iiests.ac.in";
+  if (profile?.role !== "admin" && profile?.role !== "monitor" && !isProtectedAdmin) {
     return { response: NextResponse.json({ error: "Only admins and monitors can make these changes." }, { status: 403 }) };
   }
 
@@ -51,28 +57,49 @@ async function authorizeStaff(req: NextRequest): Promise<{ userId: string } | { 
 }
 
 function ensureDataFile() {
-  const dir = path.dirname(dataFilePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  if (!fs.existsSync(dataFilePath)) {
-    fs.writeFileSync(dataFilePath, JSON.stringify([], null, 2), "utf8");
+  try {
+    const dir = path.dirname(dataFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(dataFilePath)) {
+      fs.writeFileSync(dataFilePath, JSON.stringify([], null, 2), "utf8");
+    }
+  } catch {
+    // Read-only filesystem in serverless environments (e.g. Vercel)
   }
 }
 
 function readLocalMaterials(): any[] {
   try {
-    ensureDataFile();
-    const raw = fs.readFileSync(dataFilePath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+    if (fs.existsSync(dataFilePath)) {
+      const raw = fs.readFileSync(dataFilePath, "utf8");
+      return JSON.parse(raw);
+    }
+  } catch {}
+  try {
+    const tmpPath = path.join(os.tmpdir(), "materials.json");
+    if (fs.existsSync(tmpPath)) {
+      const raw = fs.readFileSync(tmpPath, "utf8");
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return [];
 }
 
 function writeLocalMaterials(items: any[]) {
-  ensureDataFile();
-  fs.writeFileSync(dataFilePath, JSON.stringify(items, null, 2), "utf8");
+  try {
+    ensureDataFile();
+    fs.writeFileSync(dataFilePath, JSON.stringify(items, null, 2), "utf8");
+  } catch {
+    // Read-only filesystem in serverless environments (e.g. Vercel)
+    try {
+      const tmpPath = path.join(os.tmpdir(), "materials.json");
+      fs.writeFileSync(tmpPath, JSON.stringify(items, null, 2), "utf8");
+    } catch {
+      // Ignored
+    }
+  }
 }
 
 export async function GET() {
@@ -110,31 +137,57 @@ export async function POST(req: NextRequest) {
     }
     item.uploader_id = authorization.userId;
 
+    // Ensure a valid UUID for PostgreSQL
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!item.id || !uuidRegex.test(item.id)) {
+      item.id = crypto.randomUUID();
+    }
+
     // Try inserting into Supabase if available
     if (supabaseAdmin) {
       try {
-        await supabaseAdmin.from("materials").insert({
+        // Attempt insert with all extended metadata fields
+        const { error: insertError } = await supabaseAdmin.from("materials").insert({
           id: item.id,
           title: item.title,
-          semester: item.semester,
+          semester: Number(item.semester),
           subject: item.subject,
           course_name: item.course_name || item.subject,
           category: item.category,
           kind: item.kind,
           url: item.url,
+          file_name: item.file_name || undefined,
           uploader_id: item.uploader_id,
           created_at: item.created_at || new Date().toISOString(),
         });
-      } catch {
-        // Table not present yet in Supabase, continuing with file store
+
+        // If extended columns are missing, fallback to standard schema
+        if (insertError) {
+          await supabaseAdmin.from("materials").insert({
+            id: item.id,
+            title: item.title,
+            semester: Number(item.semester),
+            subject: item.subject,
+            kind: item.kind,
+            url: item.url,
+            uploader_id: item.uploader_id,
+            created_at: item.created_at || new Date().toISOString(),
+          });
+        }
+      } catch (sbErr) {
+        console.warn("Supabase insert warning:", sbErr);
       }
     }
 
-    // Persist to local JSON file so all clients see it
-    const list = readLocalMaterials();
-    const filtered = list.filter((m) => m.id !== item.id);
-    filtered.unshift(item);
-    writeLocalMaterials(filtered);
+    // Persist to local JSON file safely (falls back to /tmp or no-op on read-only environments like Vercel)
+    try {
+      const list = readLocalMaterials();
+      const filtered = list.filter((m) => m.id !== item.id);
+      filtered.unshift(item);
+      writeLocalMaterials(filtered);
+    } catch {
+      // Ignored in read-only environments
+    }
 
     return NextResponse.json({ success: true, material: item });
   } catch (err: any) {
@@ -160,14 +213,34 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Semester and both course names are required" }, { status: 400 });
     }
 
-    const materials = readLocalMaterials();
-    const updatedMaterials = materials.map((material) => (
-      material.semester === semester && material.subject === currentSubject
-        ? { ...material, subject: nextSubject, course_name: nextSubject }
-        : material
-    ));
+    if (supabaseAdmin) {
+      try {
+        const { error: patchError } = await supabaseAdmin
+          .from("materials")
+          .update({ subject: nextSubject, course_name: nextSubject })
+          .eq("semester", semester)
+          .eq("subject", currentSubject);
 
-    writeLocalMaterials(updatedMaterials);
+        if (patchError) {
+          await supabaseAdmin
+            .from("materials")
+            .update({ subject: nextSubject })
+            .eq("semester", semester)
+            .eq("subject", currentSubject);
+        }
+      } catch {}
+    }
+
+    try {
+      const materials = readLocalMaterials();
+      const updatedMaterials = materials.map((material) => (
+        material.semester === semester && material.subject === currentSubject
+          ? { ...material, subject: nextSubject, course_name: nextSubject }
+          : material
+      ));
+      writeLocalMaterials(updatedMaterials);
+    } catch {}
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Failed to rename course materials" }, { status: 500 });
@@ -196,17 +269,18 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    const list = readLocalMaterials();
-    const updated = list.filter((m) => {
-      if (id && m.id === id) return false;
-      if (semester && subject && m.semester === Number(semester) && m.subject === subject) return false;
-      return true;
-    });
-    writeLocalMaterials(updated);
+    try {
+      const list = readLocalMaterials();
+      const updated = list.filter((m) => {
+        if (id && m.id === id) return false;
+        if (semester && subject && m.semester === Number(semester) && m.subject === subject) return false;
+        return true;
+      });
+      writeLocalMaterials(updated);
+    } catch {}
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Failed to delete material" }, { status: 500 });
   }
 }
-

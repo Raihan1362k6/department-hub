@@ -104,6 +104,8 @@ type Assignment = {
   subject: string;
   due_date: string;
   created_at?: string;
+  attachment_url?: string | null;
+  file_name?: string | null;
 };
 type Completion = { assignment_id: string; done: boolean };
 
@@ -454,7 +456,7 @@ export default function Home() {
       .join("");
   }
 
-  async function resolveMaterialUrl(file: File | null, purpose?: "syllabus"): Promise<{ url: string; fileName: string }> {
+  async function resolveMaterialUrl(file: File | null, purpose?: "syllabus" | "assignment"): Promise<{ url: string; fileName: string }> {
     if (!file || file.size === 0) {
       return { url: "", fileName: "" };
     }
@@ -745,19 +747,31 @@ export default function Home() {
     const client = supabase;
     const loadAssignments = async () => {
       try {
+        let rows: Assignment[] | null = null;
         const { data, error } = await client
           .from("assignments")
-          .select("id, title, description, subject, due_date, created_at")
+          .select("id, title, description, subject, due_date, created_at, attachment_url, file_name")
           .order("due_date", { ascending: true });
 
-        if (error && !isMissingTableError(error)) {
+        if (!error && Array.isArray(data)) {
+          rows = data as Assignment[];
+        } else if (error && (error.message?.includes("attachment_url") || error.message?.includes("file_name"))) {
+          const fallbackRes = await client
+            .from("assignments")
+            .select("id, title, description, subject, due_date, created_at")
+            .order("due_date", { ascending: true });
+          if (!fallbackRes.error && Array.isArray(fallbackRes.data)) {
+            rows = fallbackRes.data as Assignment[];
+          }
+        } else if (error && !isMissingTableError(error)) {
           if (active) showNotice("Could not load assignments from Supabase.", "error");
           return;
         }
+
         if (!active) return;
 
-        if (Array.isArray(data)) {
-          setAssignments(data as Assignment[]);
+        if (Array.isArray(rows)) {
+          setAssignments(rows);
           setAssignmentsBacked(true);
 
           const { data: completionRows, error: completionError } = await client
@@ -1238,8 +1252,8 @@ export default function Home() {
   }
 
   function handleAddSubject() {
-    if (!canManageMaterials) {
-      setNotice("Only admins and monitors can add subject folders.");
+    if (!canManageCourseFolders) {
+      setNotice("Only admins, superior admins and monitors can add subject folders.");
       return;
     }
     setModal("subject");
@@ -1516,9 +1530,15 @@ export default function Home() {
     const subjectName = String(fd.get("subject") || "").trim();
     const description = String(fd.get("body") || "").trim();
     const dueDate = String(fd.get("due_date") || "").trim();
+    const file = fd.get("file") as File | null;
 
     if (!title || !subjectName || !dueDate) {
       setAssignmentError("Title, subject and due date are required.");
+      return;
+    }
+
+    if (file && file.size > 0 && !file.name.toLowerCase().endsWith(".pdf")) {
+      setAssignmentError("Assignment attachment must be a PDF document.");
       return;
     }
 
@@ -1526,26 +1546,45 @@ export default function Home() {
     setAssignmentBusy(true);
 
     try {
+      let attachmentUrl = assignmentEditTarget?.attachment_url || null;
+      let fileName = assignmentEditTarget?.file_name || null;
+
+      if (file && file.size > 0) {
+        const uploaded = await resolveMaterialUrl(file, "assignment");
+        attachmentUrl = uploaded.url;
+        fileName = uploaded.fileName || file.name;
+      }
+
       let savedAssignment: Assignment | null = null;
       let fallbackMessage = "";
-      const values = { title, description, subject: subjectName, due_date: dueDate };
+      const baseValues = { title, description, subject: subjectName, due_date: dueDate };
+      const valuesWithAttachment = { ...baseValues, attachment_url: attachmentUrl, file_name: fileName };
 
       if (assignmentEditTarget && hasAuthenticatedSupabase && supabase && assignmentsBacked) {
-        const { data, error } = await supabase
+        let updateRes = await supabase
           .from("assignments")
-          .update(values)
+          .update(valuesWithAttachment)
           .eq("id", assignmentEditTarget.id)
-          .select("id, title, description, subject, due_date, created_at")
+          .select("id, title, description, subject, due_date, created_at, attachment_url, file_name")
           .single();
 
-        if (error && !isMissingTableError(error)) {
-          setAssignmentError(error.message || "Could not update the assignment.");
+        if (updateRes.error && (updateRes.error.message?.includes("attachment_url") || updateRes.error.message?.includes("file_name"))) {
+          updateRes = await supabase
+            .from("assignments")
+            .update(baseValues)
+            .eq("id", assignmentEditTarget.id)
+            .select("id, title, description, subject, due_date, created_at")
+            .single();
+        }
+
+        if (updateRes.error && !isMissingTableError(updateRes.error)) {
+          setAssignmentError(updateRes.error.message || "Could not update the assignment.");
           return;
         }
-        if (error) {
+        if (updateRes.error) {
           fallbackMessage = "Supabase is missing public.assignments. The assignment was updated on this device only.";
-        } else if (data) {
-          savedAssignment = data as Assignment;
+        } else if (updateRes.data) {
+          savedAssignment = { ...(updateRes.data as Assignment), attachment_url: attachmentUrl, file_name: fileName };
         } else {
           setAssignmentError("Supabase did not return the updated assignment.");
           return;
@@ -1553,20 +1592,28 @@ export default function Home() {
       } else if (assignmentEditTarget && hasAuthenticatedSupabase && supabase) {
         fallbackMessage = "Assignments are not connected to Supabase. The change was saved on this device only.";
       } else if (!assignmentEditTarget && hasAuthenticatedSupabase && supabase && profile) {
-        const { data, error } = await supabase
+        let insertRes = await supabase
           .from("assignments")
-          .insert({ ...values, author_id: profile.id })
-          .select("id, title, description, subject, due_date, created_at")
+          .insert({ ...valuesWithAttachment, author_id: profile.id })
+          .select("id, title, description, subject, due_date, created_at, attachment_url, file_name")
           .single();
 
-        if (error && !isMissingTableError(error)) {
-          setAssignmentError(error.message || "Could not publish the assignment.");
+        if (insertRes.error && (insertRes.error.message?.includes("attachment_url") || insertRes.error.message?.includes("file_name"))) {
+          insertRes = await supabase
+            .from("assignments")
+            .insert({ ...baseValues, author_id: profile.id })
+            .select("id, title, description, subject, due_date, created_at")
+            .single();
+        }
+
+        if (insertRes.error && !isMissingTableError(insertRes.error)) {
+          setAssignmentError(insertRes.error.message || "Could not publish the assignment.");
           return;
         }
-        if (error) {
+        if (insertRes.error) {
           fallbackMessage = "Supabase is missing public.assignments. The assignment was saved locally only.";
-        } else if (data) {
-          savedAssignment = data as Assignment;
+        } else if (insertRes.data) {
+          savedAssignment = { ...(insertRes.data as Assignment), attachment_url: attachmentUrl, file_name: fileName };
           setAssignmentsBacked(true);
         } else {
           setAssignmentError("Supabase did not return the new assignment.");
@@ -1582,6 +1629,8 @@ export default function Home() {
           description,
           subject: subjectName,
           due_date: dueDate,
+          attachment_url: attachmentUrl,
+          file_name: fileName,
           created_at: assignmentEditTarget?.created_at ?? new Date().toISOString(),
         };
       }
@@ -1597,6 +1646,7 @@ export default function Home() {
       setAssignmentError(error instanceof Error ? error.message : "Could not save the assignment.");
     } finally {
       setAssignmentBusy(false);
+      setUploadProgress(null);
     }
   }
 
@@ -3423,9 +3473,11 @@ export default function Home() {
                         <Search size={18} />
                         <input placeholder="Search notes or lectures..." value={query} onChange={(e) => setQuery(e.target.value)} />
                       </div>
-                      <button className="secondary-btn" type="button" onClick={handleAddSubject}>
-                        <Plus size={15} /> Add subject
-                      </button>
+                      {canManageCourseFolders && (
+                        <button className="secondary-btn" type="button" onClick={handleAddSubject}>
+                          <Plus size={15} /> Add subject
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -4308,6 +4360,15 @@ export default function Home() {
                 <Field label="Due date">
                   <input type="date" name="due_date" required defaultValue={assignmentEditTarget?.due_date ?? ""} disabled={assignmentBusy} />
                 </Field>
+                <Field label={assignmentEditTarget?.attachment_url ? "Replace attachment PDF (optional)" : "Attach assignment PDF (optional)"}>
+                  <input name="file" type="file" accept=".pdf,application/pdf" disabled={assignmentBusy} />
+                </Field>
+                {assignmentEditTarget?.file_name && (
+                  <small style={{ color: "var(--muted)", marginTop: -6 }}>
+                    Current attachment: <strong>{assignmentEditTarget.file_name}</strong>
+                  </small>
+                )}
+                {uploadProgress && <div className="modal-notice" role="status">{uploadProgress}</div>}
                 <button className="primary-btn full-btn" type="submit" disabled={assignmentBusy}>
                   {assignmentBusy ? "Saving…" : assignmentEditTarget ? "Save changes" : "Add assignment"}
                 </button>
@@ -4464,6 +4525,22 @@ function TaskRow({
         <span>
           {item.subject}{item.description && <> <i>·</i> {item.description}</>}
         </span>
+        {item.attachment_url && (
+          <div className="task-attachment-wrap">
+            <a
+              href={`/api/download?url=${encodeURIComponent(item.attachment_url)}&name=${encodeURIComponent(item.file_name || item.title + ".pdf")}`}
+              target="_blank"
+              rel="noreferrer"
+              download
+              className="task-attachment-pill"
+              title={`Download assignment PDF: ${item.file_name || item.title}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download size={13} />
+              <span>{item.file_name || "Download PDF"}</span>
+            </a>
+          </div>
+        )}
       </div>
       <div className={`due-date ${late ? "late" : ""}`}>
         {late ? "Overdue" : done ? "Completed" : `Due ${new Date(item.due_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}

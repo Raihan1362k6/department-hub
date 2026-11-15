@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     if (!file || file.size === 0) {
       return NextResponse.json({ error: "No file provided." }, { status: 400 });
     }
-    if (purpose !== null && purpose !== "syllabus") {
+    if (purpose !== null && purpose !== "syllabus" && purpose !== "assignment") {
       return NextResponse.json({ error: "Unsupported upload purpose." }, { status: 400 });
     }
 
@@ -71,12 +71,12 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    if (purpose === "syllabus" && (
+    if ((purpose === "syllabus" || purpose === "assignment") && (
       !file.name.toLowerCase().endsWith(".pdf")
       || (file.type && file.type !== "application/pdf" && file.type !== "application/octet-stream")
       || buffer.subarray(0, 5).toString("ascii") !== "%PDF-"
     )) {
-      return NextResponse.json({ error: "Syllabus files must be valid PDF documents." }, { status: 400 });
+      return NextResponse.json({ error: `${purpose === "syllabus" ? "Syllabus" : "Assignment"} files must be valid PDF documents.` }, { status: 400 });
     }
 
     const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");

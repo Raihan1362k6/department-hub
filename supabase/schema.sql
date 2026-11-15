@@ -59,6 +59,8 @@ create table public.assignments (
   description text not null,
   subject text not null,
   due_date date not null,
+  attachment_url text,
+  file_name text,
   author_id uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
 );

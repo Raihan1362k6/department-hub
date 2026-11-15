@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
 
         // If extended columns are missing, fallback to standard schema
         if (insertError) {
-          await supabaseAdmin.from("materials").insert({
+          const { error: fallbackError } = await supabaseAdmin.from("materials").insert({
             id: item.id,
             title: item.title,
             semester: Number(item.semester),
@@ -173,9 +173,15 @@ export async function POST(req: NextRequest) {
             uploader_id: item.uploader_id,
             created_at: item.created_at || new Date().toISOString(),
           });
+
+          if (fallbackError) {
+            // Never pretend success when Supabase rejected the write —
+            // silently local-only saves are invisible to other browsers.
+            return NextResponse.json({ error: fallbackError.message || "Could not save the material to Supabase." }, { status: 500 });
+          }
         }
-      } catch (sbErr) {
-        console.warn("Supabase insert warning:", sbErr);
+      } catch (sbErr: any) {
+        return NextResponse.json({ error: sbErr?.message || "Could not save the material to Supabase." }, { status: 500 });
       }
     }
 
@@ -222,13 +228,19 @@ export async function PATCH(req: NextRequest) {
           .eq("subject", currentSubject);
 
         if (patchError) {
-          await supabaseAdmin
+          const { error: fallbackPatchError } = await supabaseAdmin
             .from("materials")
             .update({ subject: nextSubject })
             .eq("semester", semester)
             .eq("subject", currentSubject);
+
+          if (fallbackPatchError) {
+            return NextResponse.json({ error: fallbackPatchError.message || "Could not rename the materials in Supabase." }, { status: 500 });
+          }
         }
-      } catch {}
+      } catch (sbErr: any) {
+        return NextResponse.json({ error: sbErr?.message || "Could not rename the materials in Supabase." }, { status: 500 });
+      }
     }
 
     try {
@@ -258,14 +270,23 @@ export async function DELETE(req: NextRequest) {
     const subject = searchParams.get("subject");
 
     if (supabaseAdmin) {
-      try {
-        if (id) {
-          await supabaseAdmin.from("materials").delete().eq("id", id);
-        } else if (semester && subject) {
-          await supabaseAdmin.from("materials").delete().eq("semester", Number(semester)).eq("subject", subject);
+      // Legacy ids like "m-1794..." only ever lived in a browser's localStorage —
+      // they were never saved to Supabase, so skip the (impossible) delete there.
+      const isUuid = typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+      const shouldQuerySupabase = (id && isUuid) || (!id && semester && subject);
+
+      if (shouldQuerySupabase) {
+        try {
+          const { error: deleteError } = id
+            ? await supabaseAdmin.from("materials").delete().eq("id", id)
+            : await supabaseAdmin.from("materials").delete().eq("semester", Number(semester)).eq("subject", subject);
+
+          if (deleteError) {
+            return NextResponse.json({ error: deleteError.message || "Could not delete the material from Supabase." }, { status: 500 });
+          }
+        } catch (sbErr: any) {
+          return NextResponse.json({ error: sbErr?.message || "Could not delete the material from Supabase." }, { status: 500 });
         }
-      } catch {
-        // Supabase table not created yet
       }
     }
 

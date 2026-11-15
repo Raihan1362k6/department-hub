@@ -16,7 +16,6 @@ import {
   Eye,
   EyeOff,
   FileText,
-  Filter,
   FolderOpen,
   GraduationCap,
   LayoutDashboard,
@@ -230,7 +229,6 @@ export default function Home() {
   const [activePyqCourseId, setActivePyqCourseId] = useState<string | null>(null);
   const [activePyqExamType, setActivePyqExamType] = useState<PyqExamType | null>(null);
   const [subject, setSubject] = useState("All subjects");
-  const [subjectFilterOpen, setSubjectFilterOpen] = useState(false);
   const [activeSubjectFolder, setActiveSubjectFolder] = useState<string | null>(null);
   const [activeCourseSubFolder, setActiveCourseSubFolder] = useState<"Notes" | "Youtube Lectures Link" | "Syllabus" | null>(null);
   const [materialKindPreset, setMaterialKindPreset] = useState<"file" | "link" | null>(null);
@@ -3235,7 +3233,7 @@ export default function Home() {
               <div className="filter-panel">
                 <div className="semester-tabs">
                   {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                    <button key={n} className={semester === n ? "selected" : ""} onClick={() => { setSemester(n); setSubject("All subjects"); setActiveSubjectFolder(null); setActiveCourseSubFolder(null); setSubjectFilterOpen(false); }}>
+                    <button key={n} className={semester === n ? "selected" : ""} onClick={() => { setSemester(n); setSubject("All subjects"); setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
                       Sem {n}
                     </button>
                   ))}
@@ -3243,59 +3241,8 @@ export default function Home() {
 
                 <div className="filter-row">
                   <div className="search-box">
-                    <Search size={17} />
+                    <Search size={18} />
                     <input placeholder="Search notes or lectures..." value={query} onChange={(e) => setQuery(e.target.value)} />
-                  </div>
-                  <div className={`subject-filter-wrap ${subjectFilterOpen ? "is-open" : ""}`}>
-                    <button
-                      type="button"
-                      className="subject-filter-trigger"
-                      aria-haspopup="listbox"
-                      aria-expanded={subjectFilterOpen}
-                      onClick={() => setSubjectFilterOpen((open) => !open)}
-                    >
-                      <Filter size={16} />
-                      <span>Filter by subject</span>
-                      <strong>{activeSubjectFolder || subject}</strong>
-                      <ChevronDown size={16} />
-                    </button>
-                    {subjectFilterOpen && (
-                      <div className="subject-filter-popover" role="listbox" aria-label="Filter by subject">
-                        <div className="subject-filter-popover-head">
-                          <span>SUBJECT FILTER</span>
-                          <small>{semesterSubjectFolders.length} course{semesterSubjectFolders.length === 1 ? "" : "s"}</small>
-                        </div>
-                        {subjects.map((name) => {
-                          const isSelected = (activeSubjectFolder || subject) === name;
-                          const resourceCount = materials.filter((material) => (
-                            material.semester === semester &&
-                            (name === "All subjects" || material.subject === name)
-                          )).length;
-                          return (
-                            <button
-                              type="button"
-                              key={name}
-                              className={`subject-filter-option ${isSelected ? "selected" : ""}`}
-                              role="option"
-                              aria-selected={isSelected}
-                              onClick={() => {
-                                setSubject(name);
-                                setActiveSubjectFolder(name === "All subjects" ? null : name);
-                                setActiveCourseSubFolder(null);
-                                setSubjectFilterOpen(false);
-                              }}
-                            >
-                              <span className="subject-filter-option-icon">{name === "All subjects" ? <BookOpen size={16} /> : name.charAt(0).toUpperCase()}</span>
-                              <span className="subject-filter-option-copy">
-                                <strong>{name}</strong>
-                                <small>{resourceCount} resource{resourceCount === 1 ? "" : "s"}</small>
-                              </span>
-                              {isSelected && <Check size={16} />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                   <button className="secondary-btn" type="button" onClick={handleAddSubject}>
                     <Plus size={15} /> Add subject

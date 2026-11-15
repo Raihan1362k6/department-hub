@@ -111,3 +111,62 @@
 @keyframes overview-float{0%,100%{translate:0 0}50%{translate:0 -5px}}
 @media(max-width:760px){.overview-hero:hover{transform:none}.overview-stats .stat-card:hover{transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.overview-hero,.overview-hero>div,.overview-hero .welcome-current-widget,.overview-stats .stat-card,.overview-stats .stat-top svg{animation:none!important;transition:none!important}.overview-hero:hover,.overview-stats .stat-card:hover{transform:none}}
+
+/* Study materials search bar & toolbar */
+.filter-row {
+  display: flex;
+  gap: 12px;
+  padding-top: 13px;
+  align-items: center;
+}
+
+.filter-row .search-box {
+  flex: 1;
+  height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  color: #9aa3b0;
+  background: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.theme-dark .filter-row .search-box {
+  background-color: #101c2d;
+  border-color: var(--line);
+}
+
+.filter-row .search-box:focus-within {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(107, 92, 231, 0.12);
+}
+
+.filter-row .search-box input {
+  border: 0;
+  outline: 0;
+  width: 100%;
+  font-size: 14px;
+  background: transparent;
+  color: var(--ink);
+}
+
+.filter-row .search-box input::placeholder {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.filter-row .secondary-btn {
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+

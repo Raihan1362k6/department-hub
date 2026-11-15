@@ -2887,7 +2887,7 @@ export default function Home() {
                 </Field>
               ) : (
                 <Field label="College email">
-                  <input name="email" type="email" required autoComplete="email" placeholder={authMode === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} />
+                  <input name="email" type="email" required autoComplete="email" placeholder="Enter Your G-Suite Id" />
                 </Field>
               )}
 
@@ -2924,6 +2924,19 @@ export default function Home() {
               <button className="primary-btn full-btn" type="submit" disabled={busy}>
                 {busy ? "Please wait…" : authMode === "forgot" && Boolean(resetToken && resetEmailTarget) ? "Update password" : authMode === "forgot" ? "Send reset link" : authMode === "login" ? "Sign in" : "Create account"}
               </button>
+
+              {authMode === "forgot" && (
+                <p className="form-switch">
+                  <button type="button" onClick={() => {
+                    setResetToken(null);
+                    setResetEmailTarget(null);
+                    setShowAuthPassword(false);
+                    setModal("login");
+                  }}>
+                    Back to Login Page
+                  </button>
+                </p>
+              )}
 
               {authMode !== "forgot" && (
                 <p className="form-switch">
@@ -3937,7 +3950,7 @@ export default function Home() {
                   </Field>
                 ) : (
                   <Field label="College email">
-                    <input name="email" type="email" required autoComplete="email" placeholder={modal === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} />
+                    <input name="email" type="email" required autoComplete="email" placeholder="Enter Your G-Suite Id" />
                   </Field>
                 )}
 
@@ -3974,6 +3987,19 @@ export default function Home() {
                 <button className="primary-btn full-btn" type="submit" disabled={busy}>
                   {busy ? "Please wait…" : modal === "forgot" && Boolean(resetToken && resetEmailTarget) ? "Update password" : modal === "forgot" ? "Send reset link" : modal === "login" ? "Sign in" : "Create account"}
                 </button>
+
+                {modal === "forgot" && (
+                  <p className="form-switch">
+                    <button type="button" onClick={() => {
+                      setResetToken(null);
+                      setResetEmailTarget(null);
+                      setShowAuthPassword(false);
+                      setModal("login");
+                    }}>
+                      Back to Login Page
+                    </button>
+                  </p>
+                )}
 
                 {modal !== "forgot" && (
                   <p className="form-switch">

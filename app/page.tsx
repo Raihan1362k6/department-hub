@@ -2887,7 +2887,7 @@ export default function Home() {
                 </Field>
               ) : (
                 <Field label="College email">
-                  <input name="email" type="email" required placeholder={authMode === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} defaultValue={authMode === "forgot" ? adminEmail : undefined} />
+                  <input name="email" type="email" required autoComplete="email" placeholder={authMode === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} />
                 </Field>
               )}
 
@@ -3786,7 +3786,7 @@ export default function Home() {
         <footer className="footer">
           <span>© 2026 {"IIEST EE'30"}</span>
           <span>
-            Made by Raihan <span className="footer-heart">✳</span>
+            Made by Raihan <span className="footer-heart">✳</span> · Idea By Ambar
           </span>
         </footer>
       </section>
@@ -3937,7 +3937,7 @@ export default function Home() {
                   </Field>
                 ) : (
                   <Field label="College email">
-                    <input name="email" type="email" required placeholder={modal === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} defaultValue={modal === "forgot" ? adminEmail : undefined} />
+                    <input name="email" type="email" required autoComplete="email" placeholder={modal === "forgot" ? "you@college.edu" : "Enter Your G-suite Id"} />
                   </Field>
                 )}
 

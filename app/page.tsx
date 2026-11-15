@@ -234,6 +234,7 @@ export default function Home() {
   const [subject, setSubject] = useState("All subjects");
   const [activeSubjectFolder, setActiveSubjectFolder] = useState<string | null>(null);
   const [activeCourseSubFolder, setActiveCourseSubFolder] = useState<"Notes" | "Youtube Lectures Link" | "Syllabus" | null>(null);
+  const [courseSubFolderSearch, setCourseSubFolderSearch] = useState("");
   const [materialKindPreset, setMaterialKindPreset] = useState<"file" | "link" | null>(null);
   const [subjectEditTarget, setSubjectEditTarget] = useState<string | null>(null);
   const [subjectDraft, setSubjectDraft] = useState("");
@@ -598,16 +599,29 @@ export default function Home() {
     };
   }, [SESSION_KEY, STORAGE_KEY]);
 
+  // Clear the in-course sub-folder search whenever the user navigates
+  // (switching folder, course, or semester).
+  useEffect(() => {
+    setCourseSubFolderSearch("");
+  }, [activeCourseSubFolder, activeSubjectFolder, semester]);
+
   useEffect(() => {
     const loadSharedMaterials = async () => {
       try {
         const res = await fetch("/api/materials");
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.materials) && data.materials.length > 0) {
+          if (Array.isArray(data.materials)) {
             setMaterials((prev) => {
-              const ids = new Set(data.materials.map((m: Material) => m.id));
-              const nonDuplicatePrev = prev.filter((p) => !ids.has(p.id));
+              const sharedIds = new Set(data.materials.map((m: Material) => m.id));
+              // Once authenticated, Supabase is the source of truth: drop locally
+              // cached copies of shared materials that were deleted in another
+              // browser. Legacy localStorage-only items (non-UUID ids) are kept.
+              const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+              const cleanedPrev = hasAuthenticatedSupabase
+                ? prev.filter((p) => !uuidPattern.test(p.id) || sharedIds.has(p.id))
+                : prev;
+              const nonDuplicatePrev = cleanedPrev.filter((p) => !sharedIds.has(p.id));
               return [...data.materials, ...nonDuplicatePrev];
             });
           }
@@ -618,7 +632,7 @@ export default function Home() {
     };
 
     void loadSharedMaterials();
-  }, []);
+  }, [hasAuthenticatedSupabase]);
 
   useEffect(() => {
     if (!configured || !supabase || !profile) return;
@@ -3378,11 +3392,26 @@ export default function Home() {
                         );
                       })()
                     ) : (
-                    <>
-                      <div className="material-grid">
-                        {visibleMaterials
-                          .filter((m) => (activeCourseSubFolder === "Youtube Lectures Link" ? m.kind === "link" : m.kind !== "link"))
-                          .map((m) => (
+                    (() => {
+                      const subFolderItems = visibleMaterials.filter((m) => (activeCourseSubFolder === "Youtube Lectures Link" ? m.kind === "link" : m.kind !== "link"));
+                      const searchQuery = courseSubFolderSearch.trim().toLowerCase();
+                      const matchedMaterials = searchQuery
+                        ? subFolderItems.filter((m) => [m.title, m.category, m.file_name].some((value) => (value || "").toLowerCase().includes(searchQuery)))
+                        : subFolderItems;
+                      return (
+                      <>
+                        <div className="filter-row subject-search-row">
+                          <div className="search-box">
+                            <Search size={17} />
+                            <input
+                              placeholder={activeCourseSubFolder === "Youtube Lectures Link" ? "Search lecture links..." : "Search notes..."}
+                              value={courseSubFolderSearch}
+                              onChange={(e) => setCourseSubFolderSearch(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="material-grid">
+                          {matchedMaterials.map((m) => (
                             <div className="material-card" key={m.id}>
                               <div className={`material-icon ${m.kind === "link" ? "video-icon" : ""}`}>
                                 {m.kind === "link" ? <Video /> : <FileText />}
@@ -3417,15 +3446,25 @@ export default function Home() {
                               </div>
                             </div>
                           ))}
-                      </div>
-                      {visibleMaterials.filter((m) => (activeCourseSubFolder === "Youtube Lectures Link" ? m.kind === "link" : m.kind !== "link")).length === 0 && (
-                        <Empty
-                          icon={activeCourseSubFolder === "Notes" ? <FileText /> : <Video />}
-                          title={activeCourseSubFolder === "Notes" ? "No notes here yet" : "No lecture links here yet"}
-                          text={canManageMaterials ? "Use Share material to add the first resource to this folder." : "Notes and lecture links will appear here once shared."}
-                        />
-                      )}
-                    </>
+                        </div>
+                        {matchedMaterials.length === 0 && (
+                          subFolderItems.length === 0 ? (
+                            <Empty
+                              icon={activeCourseSubFolder === "Notes" ? <FileText /> : <Video />}
+                              title={activeCourseSubFolder === "Notes" ? "No notes here yet" : "No lecture links here yet"}
+                              text={canManageMaterials ? "Use Share material to add the first resource to this folder." : "Notes and lecture links will appear here once shared."}
+                            />
+                          ) : (
+                            <Empty
+                              icon={<Search />}
+                              title="No matching results"
+                              text={`Nothing in this folder matches "${courseSubFolderSearch.trim()}". Try a different search term.`}
+                            />
+                          )
+                        )}
+                      </>
+                      );
+                    })()
                     )
                   ) : (
                     <div className="subject-folder-grid">

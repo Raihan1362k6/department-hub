@@ -3314,13 +3314,13 @@ export default function Home() {
                       <div
                         className={`subject-folder-card ${isActive ? "active" : ""}`}
                         key={folderName}
-                        onClick={() => { setActiveSubjectFolder(isActive ? null : folderName); setActiveCourseSubFolder(null); }}
+                        onClick={() => { setActiveSubjectFolder(folderName); setActiveCourseSubFolder(null); }}
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            setActiveSubjectFolder(isActive ? null : folderName);
+                            setActiveSubjectFolder(folderName);
                             setActiveCourseSubFolder(null);
                           }
                         }}
@@ -3359,8 +3359,13 @@ export default function Home() {
                 )}
               </div>
 
-              {activeSubjectFolder ? (
-                <div className="subject-detail-panel">
+              {activeSubjectFolder && (
+                <div className="course-folder-overlay" onClick={() => { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
+                  <div className="course-folder-window" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+                    <button className="course-folder-close" type="button" aria-label="Close course folder" onClick={() => { setActiveSubjectFolder(null); setActiveCourseSubFolder(null); }}>
+                      <X size={18} />
+                    </button>
+                    <div className="subject-detail-panel">
                   <div className="subject-detail-header">
                     <div>
                       <span className="eyebrow">COURSE FOLDER{activeCourseSubFolder ? ` · ${activeCourseSubFolder.toUpperCase()}` : ""}</span>
@@ -3515,13 +3520,10 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-              ) : (
-                <Empty
-                  icon={<FolderOpen />}
-                  title="Select a course folder"
-                  text="Click a course above to open it and see the materials shared inside it."
-                />
-              )}
+              </div>
+              </div>
+            </div>
+          )}
             </>
           )}
 

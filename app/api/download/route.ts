@@ -61,10 +61,9 @@ export async function GET(req: NextRequest) {
     const driveFileId = extractDriveFileId(fileUrl);
     if (driveFileId) {
       const drive = await fetchDriveFile(driveFileId);
-      arrayBuffer = drive.buffer.buffer.slice(
-        drive.buffer.byteOffset,
-        drive.buffer.byteOffset + drive.buffer.byteLength
-      );
+      const copy = new ArrayBuffer(drive.buffer.byteLength);
+      new Uint8Array(copy).set(drive.buffer);
+      arrayBuffer = copy;
       upstreamContentType = drive.mimeType;
       upstreamName = drive.fileName;
     } else {

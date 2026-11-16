@@ -613,15 +613,17 @@ export default function Home() {
           const data = await res.json();
           if (Array.isArray(data.materials)) {
             setMaterials((prev) => {
+              if (hasAuthenticatedSupabase) {
+                // Signed-in staff: Supabase is the single source of truth.
+                // Replace the list outright so deletions and edits made in any
+                // browser propagate everywhere (and stale per-browser cache
+                // copies can never resurrect phantom folders).
+                return data.materials;
+              }
+              // Not authenticated (preview/local mode): merge shared rows
+              // into the cached list without dropping anything.
               const sharedIds = new Set(data.materials.map((m: Material) => m.id));
-              // Once authenticated, Supabase is the source of truth: drop locally
-              // cached copies of shared materials that were deleted in another
-              // browser. Legacy localStorage-only items (non-UUID ids) are kept.
-              const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-              const cleanedPrev = hasAuthenticatedSupabase
-                ? prev.filter((p) => !uuidPattern.test(p.id) || sharedIds.has(p.id))
-                : prev;
-              const nonDuplicatePrev = cleanedPrev.filter((p) => !sharedIds.has(p.id));
+              const nonDuplicatePrev = prev.filter((p) => !sharedIds.has(p.id));
               return [...data.materials, ...nonDuplicatePrev];
             });
           }

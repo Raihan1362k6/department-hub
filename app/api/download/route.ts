@@ -1,4 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { extractDriveFileId, fetchDriveFile } from "@/lib/drive";
+
+const mimeMap: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  txt: "text/plain",
+};
+
+function detectExtension(headerBytes: Buffer, fileUrl: string): string {
+  const head = headerBytes.toString("latin1");
+  if (head.startsWith("%PDF")) return ".pdf";
+  if (head.startsWith("PK\x03\x04") || fileUrl.includes(".docx")) return ".docx";
+  if (fileUrl.includes(".pptx")) return ".pptx";
+  if (fileUrl.includes(".xlsx")) return ".xlsx";
+  if (head.startsWith("\x89PNG")) return ".png";
+  if (head.startsWith("\xFF\xD8\xFF")) return ".jpg";
+  return ".pdf"; // default fallback for documents
+}
+
+function buildFileResponse(
+  arrayBuffer: ArrayBuffer,
+  filename: string,
+  contentType: string
+): NextResponse {
+  const cleanFilename = filename.replace(/["\r\n]/g, "_");
+  return new NextResponse(arrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Disposition": `attachment; filename="${cleanFilename}"; filename*=UTF-8''${encodeURIComponent(cleanFilename)}`,
+      "Content-Type": contentType,
+      "Content-Length": String(arrayBuffer.byteLength),
+    },
+  });
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,40 +53,39 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing file URL" }, { status: 400 });
     }
 
-    // Fetch the file from storage
-    const upstreamRes = await fetch(fileUrl);
-    if (!upstreamRes.ok) {
-      return NextResponse.json(
-        { error: "Failed to retrieve file from storage" },
-        { status: upstreamRes.status }
-      );
-    }
+    let arrayBuffer: ArrayBuffer;
+    let upstreamContentType: string | null = null;
+    let upstreamName: string | null = null;
 
-    const arrayBuffer = await upstreamRes.arrayBuffer();
+    // Google Drive files are private — stream them with the service account.
+    const driveFileId = extractDriveFileId(fileUrl);
+    if (driveFileId) {
+      const drive = await fetchDriveFile(driveFileId);
+      arrayBuffer = drive.buffer.buffer.slice(
+        drive.buffer.byteOffset,
+        drive.buffer.byteOffset + drive.buffer.byteLength
+      );
+      upstreamContentType = drive.mimeType;
+      upstreamName = drive.fileName;
+    } else {
+      // Non-Drive URLs (legacy Cloudinary uploads, direct links) — plain proxy.
+      const upstreamRes = await fetch(fileUrl);
+      if (!upstreamRes.ok) {
+        return NextResponse.json(
+          { error: "Failed to retrieve file from storage" },
+          { status: upstreamRes.status }
+        );
+      }
+      arrayBuffer = await upstreamRes.arrayBuffer();
+      upstreamContentType = upstreamRes.headers.get("content-type");
+    }
 
     // If filename wasn't provided or lacks extension, inspect magic bytes and URL
     if (!filename || !filename.includes(".")) {
-      const headerBytes = Buffer.from(arrayBuffer.slice(0, 8)).toString();
-
-      let detectedExt = "";
-      if (headerBytes.startsWith("%PDF")) {
-        detectedExt = ".pdf";
-      } else if (headerBytes.startsWith("PK\x03\x04") || fileUrl.includes(".docx")) {
-        detectedExt = ".docx";
-      } else if (fileUrl.includes(".pptx")) {
-        detectedExt = ".pptx";
-      } else if (fileUrl.includes(".xlsx")) {
-        detectedExt = ".xlsx";
-      } else if (headerBytes.startsWith("\x89PNG")) {
-        detectedExt = ".png";
-      } else if (headerBytes.startsWith("\xFF\xD8\xFF")) {
-        detectedExt = ".jpg";
-      } else {
-        detectedExt = ".pdf"; // default fallback for documents
-      }
+      const headerBytes = Buffer.from(arrayBuffer.slice(0, 8));
+      const detectedExt = detectExtension(headerBytes, fileUrl);
 
       if (!filename) {
-        // Try extracting from URL
         const urlParts = fileUrl.split("/");
         const lastPart = urlParts[urlParts.length - 1].split("?")[0];
         const strippedName = lastPart.replace(/^\d+_/, "");
@@ -53,36 +95,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Determine MIME Content-Type
-    const ext = filename.split(".").pop()?.toLowerCase() || "";
-    const mimeMap: Record<string, string> = {
-      pdf: "application/pdf",
-      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      doc: "application/msword",
-      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      ppt: "application/vnd.ms-powerpoint",
-      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      xls: "application/vnd.ms-excel",
-      png: "image/png",
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      webp: "image/webp",
-      txt: "text/plain",
-    };
-    const contentType = mimeMap[ext] || "application/octet-stream";
+    // Prefer the real content type from upstream when the extension is unknown
+    let ext = filename.split(".").pop()?.toLowerCase() || "";
+    let contentType = mimeMap[ext] || upstreamContentType || "application/octet-stream";
+    // Never serve HTML for documents (Drive virus-scan pages, etc.)
+    if (contentType === "text/html") contentType = mimeMap[ext] || "application/octet-stream";
 
-    const cleanFilename = filename.replace(/["\r\n]/g, "_");
+    // Prefer the real Drive file name only when no usable name was supplied
+    if (upstreamName && !filename) {
+      filename = upstreamName;
+    }
+    if (upstreamName && !filename.includes(".")) {
+      filename = upstreamName;
+    }
 
-    return new NextResponse(arrayBuffer, {
-      status: 200,
-      headers: {
-        "Content-Disposition": `attachment; filename="${cleanFilename}"; filename*=UTF-8''${encodeURIComponent(cleanFilename)}`,
-        "Content-Type": contentType,
-        "Content-Length": String(arrayBuffer.byteLength),
-      },
-    });
+    return buildFileResponse(arrayBuffer, filename, contentType);
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Download failed" }, { status: 500 });
   }
 }
-

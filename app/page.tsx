@@ -37,7 +37,7 @@ import { configured, supabase } from "@/lib/supabase";
 
 type Role = "student" | "monitor" | "admin";
 type MemberStatus = "active" | "disabled";
-type ResourceCategory = "Class Link" | "Handwritten Notes" | "Digital Notes";
+type ResourceCategory = "Class Link" | "Handwritten Notes" | "Digital Notes" | "E-Book";
 type Profile = {
   id: string;
   email: string;
@@ -233,9 +233,10 @@ export default function Home() {
   const [activePyqExamType, setActivePyqExamType] = useState<PyqExamType | null>(null);
   const [subject, setSubject] = useState("All subjects");
   const [activeSubjectFolder, setActiveSubjectFolder] = useState<string | null>(null);
-  const [activeCourseSubFolder, setActiveCourseSubFolder] = useState<"Notes" | "Youtube Lectures Link" | "Syllabus" | null>(null);
+  const [activeCourseSubFolder, setActiveCourseSubFolder] = useState<"Notes" | "Youtube Lectures Link" | "E-Books" | "Syllabus" | null>(null);
   const [courseSubFolderSearch, setCourseSubFolderSearch] = useState("");
   const [materialKindPreset, setMaterialKindPreset] = useState<"file" | "link" | null>(null);
+  const [materialCategoryPreset, setMaterialCategoryPreset] = useState<ResourceCategory | null>(null);
   const [subjectEditTarget, setSubjectEditTarget] = useState<string | null>(null);
   const [subjectDraft, setSubjectDraft] = useState("");
   const [subjectDeleteTarget, setSubjectDeleteTarget] = useState<string | null>(null);
@@ -2526,7 +2527,15 @@ export default function Home() {
     }
 
     // Pre-select the resource type that matches the sub-folder being shared from.
-    setMaterialKindPreset(activeCourseSubFolder === "Youtube Lectures Link" ? "link" : activeCourseSubFolder === "Notes" ? "file" : null);
+    setMaterialKindPreset(
+      activeCourseSubFolder === "Youtube Lectures Link" || activeCourseSubFolder === "E-Books"
+        ? "link"
+        : activeCourseSubFolder === "Notes"
+          ? "file"
+          : null
+    );
+    // E-Books folder is links-only: the modal locks kind and category when this preset is set.
+    setMaterialCategoryPreset(activeCourseSubFolder === "E-Books" ? "E-Book" : null);
     setMaterialSubjectPreset(subjectName);
     setSubject(subjectName);
     setModal("material");
@@ -2669,14 +2678,20 @@ export default function Home() {
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const subject = String(fd.get("subject") || materialSubjectPreset || "").trim().replace(/\s+/g, " ");
-    const category = String(fd.get("category") || "Class Link") as ResourceCategory;
-    const kind = String(fd.get("kind") || "file");
+    const ebookMode = materialCategoryPreset === "E-Book";
+    const category = String(fd.get("category") || (ebookMode ? "E-Book" : "Class Link")) as ResourceCategory;
+    const kind = ebookMode ? "link" : String(fd.get("kind") || "file");
     const url = String(fd.get("url") || "").trim();
     const semesterValue = Number(fd.get("semester") || semester);
     const uploadedFile = fd.get("file") instanceof File ? fd.get("file") as File : null;
 
     if (!title || !subject) {
       setNotice("Subject and title are required for department materials.");
+      return;
+    }
+
+    if (ebookMode && !url) {
+      setNotice("E-Books are links-only. Paste the e-book URL before sharing.");
       return;
     }
 
@@ -3395,7 +3410,13 @@ export default function Home() {
                       })()
                     ) : (
                     (() => {
-                      const subFolderItems = visibleMaterials.filter((m) => (activeCourseSubFolder === "Youtube Lectures Link" ? m.kind === "link" : m.kind !== "link"));
+                      const subFolderItems = visibleMaterials.filter((m) => (
+                        activeCourseSubFolder === "Youtube Lectures Link"
+                          ? m.kind === "link" && m.category !== "E-Book"
+                          : activeCourseSubFolder === "E-Books"
+                            ? m.kind === "link" && m.category === "E-Book"
+                            : m.kind !== "link"
+                      ));
                       const searchQuery = courseSubFolderSearch.trim().toLowerCase();
                       const matchedMaterials = searchQuery
                         ? subFolderItems.filter((m) => [m.title, m.category, m.file_name].some((value) => (value || "").toLowerCase().includes(searchQuery)))
@@ -3406,7 +3427,7 @@ export default function Home() {
                           <div className="search-box">
                             <Search size={17} />
                             <input
-                              placeholder={activeCourseSubFolder === "Youtube Lectures Link" ? "Search lecture links..." : "Search notes..."}
+                              placeholder={activeCourseSubFolder === "Youtube Lectures Link" ? "Search lecture links..." : activeCourseSubFolder === "E-Books" ? "Search e-books..." : "Search notes..."}
                               value={courseSubFolderSearch}
                               onChange={(e) => setCourseSubFolderSearch(e.target.value)}
                             />
@@ -3416,14 +3437,14 @@ export default function Home() {
                           {matchedMaterials.map((m) => (
                             <div className="material-card" key={m.id}>
                               <div className={`material-icon ${m.kind === "link" ? "video-icon" : ""}`}>
-                                {m.kind === "link" ? <Video /> : <FileText />}
+                                {m.kind === "link" ? (m.category === "E-Book" ? <BookOpen /> : <Video />) : <FileText />}
                               </div>
                               <div className="material-meta">
                                 <span>{m.course_name || m.subject}</span>
                                 <span>{m.category}</span>
                               </div>
                               <h3>{m.title}</h3>
-                              <p>{m.kind === "link" ? "Class Link · YouTube / NPTEL" : `${m.category} · Shared department document`}</p>
+                              <p>{m.category === "E-Book" ? "E-Book · Online link" : m.kind === "link" ? "Class Link · YouTube / NPTEL" : `${m.category} · Shared department document`}</p>
                               <div className="material-footer">
                                 <span>SEM {m.semester}</span>
                                 {m.kind === "link" ? (
@@ -3452,9 +3473,17 @@ export default function Home() {
                         {matchedMaterials.length === 0 && (
                           subFolderItems.length === 0 ? (
                             <Empty
-                              icon={activeCourseSubFolder === "Notes" ? <FileText /> : <Video />}
-                              title={activeCourseSubFolder === "Notes" ? "No notes here yet" : "No lecture links here yet"}
-                              text={canManageMaterials ? "Use Share material to add the first resource to this folder." : "Notes and lecture links will appear here once shared."}
+                              icon={activeCourseSubFolder === "Notes" ? <FileText /> : activeCourseSubFolder === "E-Books" ? <BookOpen /> : <Video />}
+                              title={activeCourseSubFolder === "Notes" ? "No notes here yet" : activeCourseSubFolder === "E-Books" ? "No e-books here yet" : "No lecture links here yet"}
+                              text={
+                                activeCourseSubFolder === "E-Books"
+                                  ? canManageMaterials
+                                    ? "Use Share material to add the first e-book link to this folder."
+                                    : "E-book links will appear here once shared."
+                                  : canManageMaterials
+                                    ? "Use Share material to add the first resource to this folder."
+                                    : "Notes and lecture links will appear here once shared."
+                              }
                             />
                           ) : (
                             <Empty
@@ -3470,10 +3499,16 @@ export default function Home() {
                     )
                   ) : (
                     <div className="subject-folder-grid">
-                      {(["Notes", "Youtube Lectures Link", "Syllabus"] as const).map((subFolder) => {
+                      {(["Notes", "Youtube Lectures Link", "E-Books", "Syllabus"] as const).map((subFolder) => {
                         const count = subFolder === "Syllabus"
                           ? courseSyllabi.some((item) => item.semester === semester && item.subject === activeSubjectFolder) ? 1 : 0
-                          : visibleMaterials.filter((m) => (subFolder === "Youtube Lectures Link" ? m.kind === "link" : m.kind !== "link")).length;
+                          : visibleMaterials.filter((m) => (
+                              subFolder === "Youtube Lectures Link"
+                                ? m.kind === "link" && m.category !== "E-Book"
+                                : subFolder === "E-Books"
+                                  ? m.kind === "link" && m.category === "E-Book"
+                                  : m.kind !== "link"
+                            )).length;
                         return (
                           <div
                             className="subject-folder-card"
@@ -3489,7 +3524,7 @@ export default function Home() {
                             }}
                           >
                             <div className="subject-folder-head">
-                              <div className="subject-folder-icon">{subFolder === "Notes" ? "N" : subFolder === "Syllabus" ? "S" : "Y"}</div>
+                              <div className="subject-folder-icon">{subFolder === "Notes" ? "N" : subFolder === "Syllabus" ? "S" : subFolder === "E-Books" ? "E" : "Y"}</div>
                               <div>
                                 <strong>{subFolder}</strong>
                                 <small>{subFolder === "Syllabus" ? (count ? "1 PDF" : "No PDF") : `${count} item${count === 1 ? "" : "s"}`}</small>
@@ -4252,24 +4287,38 @@ export default function Home() {
                     <input name="subject" required defaultValue={materialSubjectPreset ?? ""} placeholder="e.g. Data Structures" />
                   </Field>
                 </div>
-                <Field label="Course section">
-                  <select name="category" defaultValue="Class Link">
-                    <option value="Class Link">Classes Link (YouTube / NPTEL)</option>
-                    <option value="Digital Notes">Class Notes (Digital)</option>
-                    <option value="Handwritten Notes">Class Notes (Handwritten)</option>
+                <Field label={materialCategoryPreset === "E-Book" ? "Course section (E-Books folder)" : "Course section"}>
+                  <select name="category" defaultValue={materialCategoryPreset ?? "Class Link"}>
+                    {materialCategoryPreset === "E-Book" ? (
+                      <option value="E-Book">E-Book (online link)</option>
+                    ) : (
+                      <>
+                        <option value="Class Link">Classes Link (YouTube / NPTEL)</option>
+                        <option value="Digital Notes">Class Notes (Digital)</option>
+                        <option value="Handwritten Notes">Class Notes (Handwritten)</option>
+                      </>
+                    )}
                   </select>
                 </Field>
-                <Field label="Resource type">
-                  <select name="kind" defaultValue={materialKindPreset ?? "file"}>
-                    <option value="file">Document (PDF, Word DOCX, PPTX, image)</option>
-                    <option value="link">YouTube / NPTEL link</option>
+                <Field label={materialCategoryPreset === "E-Book" ? "Resource type (links only)" : "Resource type"}>
+                  <select name="kind" defaultValue={materialCategoryPreset === "E-Book" ? "link" : materialKindPreset ?? "file"}>
+                    {materialCategoryPreset === "E-Book" ? (
+                      <option value="link">Online link (e-book URL)</option>
+                    ) : (
+                      <>
+                        <option value="file">Document (PDF, Word DOCX, PPTX, image)</option>
+                        <option value="link">YouTube / NPTEL link</option>
+                      </>
+                    )}
                   </select>
                 </Field>
-                <Field label="File (PDF, DOCX, DOC, PPTX, XLSX, TXT, Images - max 25 MB)">
-                  <input name="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,image/*" />
-                </Field>
-                <Field label="Or paste HTTPS lecture URL">
-                  <input name="url" type="url" placeholder="https://…" />
+                {materialCategoryPreset !== "E-Book" && (
+                  <Field label="File (PDF, DOCX, DOC, PPTX, XLSX, TXT, Images - max 25 MB)">
+                    <input name="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,image/*" />
+                  </Field>
+                )}
+                <Field label={materialCategoryPreset === "E-Book" ? "E-book HTTPS link (required)" : "Or paste HTTPS lecture URL"}>
+                  <input name="url" type="url" required={materialCategoryPreset === "E-Book"} placeholder="https://…" />
                 </Field>
                 <button className="primary-btn full-btn" type="submit">
                   Share with department

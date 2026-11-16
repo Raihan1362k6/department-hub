@@ -238,6 +238,11 @@
   background: var(--purple);
   color: #fff;
 }
-
-
-
+/* In-course sub-folder search (Notes / Youtube Lectures Link) */
+.subject-search-row {
+  padding-top: 0;
+  margin-bottom: 18px;
+}
+.subject-search-row .search-box {
+  max-width: 420px;
+}

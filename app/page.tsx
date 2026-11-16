@@ -467,6 +467,102 @@ export default function Home() {
       throw new Error("File is too large. Maximum allowed size is 100 MB.");
     }
 
+    // Vercel serverless functions reject request bodies larger than ~4.5 MB
+    // (FUNCTION_PAYLOAD_TOO_LARGE), which made every bigger upload die with a
+    // generic "Upload failed". For anything above 4 MB, start a resumable
+    // session on the server and stream the file straight to Google Drive from
+    // the browser — the large body never passes through Vercel.
+    const VERCEL_BODY_LIMIT = 4 * 1024 * 1024;
+    if (file.size > VERCEL_BODY_LIMIT) {
+      setUploadProgress(`Preparing upload for ${file.name}…`);
+
+      try {
+        const initRes = await fetch("/api/upload/init", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: await getStaffAuthorizationHeader(),
+          },
+          body: JSON.stringify({
+            fileName: file.name,
+            size: file.size,
+            contentType: file.type || "application/octet-stream",
+            purpose: purpose ?? null,
+          }),
+        });
+
+        if (!initRes.ok) {
+          const errJson = await initRes.json().catch(() => null);
+          throw new Error(errJson?.error || "Could not start the upload. Please try again.");
+        }
+
+        const { uploadUrl } = await initRes.json();
+        if (!uploadUrl) {
+          throw new Error("Could not start the upload. Please try again.");
+        }
+
+        const putOutcome = await new Promise<{ status: number; text: string }>((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setUploadProgress(`Uploading ${file.name}… ${percent}%`);
+            }
+          };
+          xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText || "" });
+          // A status of 0 means the browser blocked Google's response (CORS) —
+          // the upload itself may still have succeeded, so resolve and verify
+          // server-side instead of failing here.
+          xhr.onerror = () => resolve({ status: 0, text: "" });
+          xhr.send(file);
+        });
+
+        let driveFileId: string | null = null;
+        try {
+          const parsed = putOutcome.text ? JSON.parse(putOutcome.text) : null;
+          driveFileId = parsed?.id ?? null;
+        } catch {
+          driveFileId = null;
+        }
+
+        if (!driveFileId) {
+          // Google's PUT response is not CORS-readable from the browser —
+          // confirm the finished file server-side by name and byte size.
+          setUploadProgress(`Finishing upload for ${file.name}…`);
+          try {
+            const lookupRes = await fetch(
+              `/api/upload/lookup?name=${encodeURIComponent(file.name)}&size=${String(file.size)}`,
+              { headers: { Authorization: await getStaffAuthorizationHeader() } }
+            );
+            if (lookupRes.ok) {
+              const result = await lookupRes.json().catch(() => null);
+              driveFileId = result?.fileId ?? null;
+            }
+          } catch {
+            // fall through to the error below
+          }
+        }
+
+        if (!driveFileId) {
+          const completedBlind = putOutcome.status === 0 || (putOutcome.status >= 200 && putOutcome.status < 300);
+          throw new Error(
+            completedBlind
+              ? "Upload finished but could not be verified. Please try again."
+              : `Upload failed (${putOutcome.status}). Please try again.`
+          );
+        }
+
+        return {
+          url: `https://drive.google.com/uc?export=download&id=${driveFileId}`,
+          fileName: file.name,
+        };
+      } finally {
+        setUploadProgress(null);
+      }
+    }
+
     setUploadProgress(`Uploading ${file.name}…`);
 
     const formData = new FormData();

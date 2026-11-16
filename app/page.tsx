@@ -575,25 +575,53 @@ export default function Home() {
 
     window.addEventListener("storage", handleStorage);
 
-    try {
-      const savedSession = localStorage.getItem(SESSION_KEY);
-      if (savedSession) {
-        const parsed = JSON.parse(savedSession) as { profile?: Profile; expiresAt?: number };
-        if (parsed.profile && parsed.expiresAt && Date.now() <= parsed.expiresAt) {
-          const resolvedProfile = parsed.profile.email.toLowerCase() === adminEmail.toLowerCase()
-            ? { ...parsed.profile, role: "admin" as Role }
-            : parsed.profile;
-          setProfile(resolvedProfile);
-          setModal(null);
-        } else {
-          localStorage.removeItem(SESSION_KEY);
+    const restoreSession = async () => {
+      try {
+        const savedSession = localStorage.getItem(SESSION_KEY);
+        if (savedSession) {
+          const parsed = JSON.parse(savedSession) as { profile?: Profile; expiresAt?: number };
+          if (parsed.profile && parsed.expiresAt && Date.now() <= parsed.expiresAt) {
+            const resolvedProfile = parsed.profile.email.toLowerCase() === adminEmail.toLowerCase()
+              ? { ...parsed.profile, role: "admin" as Role }
+              : parsed.profile;
+
+            const restoreProfile = () => {
+              setProfile(resolvedProfile);
+              setModal(null);
+            };
+
+            if (configured && supabase && !resolvedProfile.id.endsWith("-preview")) {
+              // The local UI session can outlive the real Supabase auth session
+              // (JWTs expire after ~1 hour and refresh tokens are revoked when
+              // the same account signs in from several browsers). Restoring the
+              // profile without validating the auth session made every write
+              // fail with confusing errors like "Could not save the course…".
+              try {
+                const { error: userError } = await supabase.auth.getUser();
+                const isNetworkError = (userError as { name?: string } | null)?.name === "AuthRetryableFetchError";
+                if (userError && !isNetworkError) {
+                  localStorage.removeItem(SESSION_KEY);
+                  setModal("login");
+                } else {
+                  restoreProfile();
+                }
+              } catch {
+                restoreProfile();
+              }
+            } else {
+              restoreProfile();
+            }
+          } else {
+            localStorage.removeItem(SESSION_KEY);
+          }
         }
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
       }
-    } catch {
-      localStorage.removeItem(SESSION_KEY);
-    } finally {
       setIsSessionReady(true);
-    }
+    };
+
+    void restoreSession();
 
     return () => {
       window.removeEventListener("storage", handleStorage);
@@ -1955,12 +1983,26 @@ export default function Home() {
     }
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        showNotice("Your session has expired. Sign in again to continue.", "error");
+        setModal("login");
+        return false;
+      }
+
       const { error } = await supabase
         .from("course_folders")
         .upsert({ semester: courseSemester, name: courseName }, { onConflict: "semester,name" });
 
       if (error && !isMissingTableError(error)) {
-        showNotice("Could not save the course to the shared department list.", "error");
+        const authFailure = /jwt|expired|invalid|row-level|permission|401|403/i.test(error.message || "");
+        showNotice(
+          authFailure
+            ? "Your session has expired. Sign in again to continue."
+            : "Could not save the course to the shared department list.",
+          "error"
+        );
+        if (authFailure) setModal("login");
         return false;
       }
 

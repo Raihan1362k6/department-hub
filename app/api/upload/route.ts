@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v2 as cloudinary } from "cloudinary";
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { getDriveAccessToken } from "@/lib/drive";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -8,18 +9,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   || process.env.SUPABASE_ANON_KEY
   || "";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true,
-});
-
-function getResourceType(mimeType: string): "image" | "video" | "raw" {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) return "video";
-  return "raw";
-}
+const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
 
 export async function POST(req: NextRequest) {
   try {
@@ -80,44 +70,55 @@ export async function POST(req: NextRequest) {
     }
 
     const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const resourceType = getResourceType(file.type);
+    const mimeType = file.type || "application/octet-stream";
 
-    const result = await new Promise<any>((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: "department-hub",
-          public_id: `${Date.now()}_${originalName.replace(/\.[^.]+$/, "")}`,
-          resource_type: resourceType,
-          use_filename: true,
-          unique_filename: false,
-          overwrite: false,
+    const driveToken = await getDriveAccessToken();
+
+    const metadata: Record<string, unknown> = { name: originalName, mimeType };
+    if (driveFolderId) metadata.parents = [driveFolderId];
+
+    const boundary = `dept-hub-${crypto.randomUUID()}`;
+    const multipartBody = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+      ),
+      buffer,
+      Buffer.from(`\r\n--${boundary}--`),
+    ]);
+
+    const uploadRes = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,size,mimeType",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${driveToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
         },
-        (error, result) => {
-          if (error) return reject(new Error(error.message || "Cloudinary upload failed."));
-          resolve(result);
-        }
-      );
-      uploadStream.end(buffer);
-    });
+        body: multipartBody,
+      }
+    );
 
-    // For non-image files, produce a download URL with fl_attachment
-    const downloadUrl =
-      resourceType === "raw"
-        ? cloudinary.url(result.public_id, {
-            resource_type: "raw",
-            flags: "attachment",
-            sign_url: false,
-          })
-        : result.secure_url;
+    if (!uploadRes.ok) {
+      const detail = await uploadRes.text().catch(() => "");
+      console.error("Google Drive upload failed:", uploadRes.status, detail.slice(0, 500));
+      return NextResponse.json({ error: `Google Drive upload failed (${uploadRes.status}).` }, { status: 500 });
+    }
+
+    const driveFile = await uploadRes.json();
+    const driveFileId = driveFile.id as string;
+
+    // Store a stable Drive URL. Downloads are proxied through /api/download,
+    // which streams the file with the service account (files stay private).
+    const storedUrl = `https://drive.google.com/uc?export=download&id=${driveFileId}`;
 
     return NextResponse.json({
-      url: downloadUrl,
-      previewUrl: result.secure_url,
-      publicId: result.public_id,
+      url: storedUrl,
+      previewUrl: `https://drive.google.com/file/d/${driveFileId}/preview`,
+      publicId: driveFileId,
       fileName: file.name,
       size: file.size,
       contentType: file.type,
-      resourceType,
+      resourceType: "raw",
     });
   } catch (err: any) {
     console.error("Upload error:", err);

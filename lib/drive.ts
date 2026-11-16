@@ -60,8 +60,23 @@ export async function getDriveAccessToken(): Promise<string> {
 
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
   const rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
+
   if (!clientEmail || !rawKey) {
-    throw new Error("Google Drive storage is not configured on the server (missing service account credentials).");
+    const missing: string[] = [];
+    if (!process.env.GOOGLE_OAUTH_CLIENT_ID) missing.push("GOOGLE_OAUTH_CLIENT_ID");
+    if (!process.env.GOOGLE_OAUTH_CLIENT_SECRET) missing.push("GOOGLE_OAUTH_CLIENT_SECRET");
+    if (!process.env.GOOGLE_OAUTH_REFRESH_TOKEN) missing.push("GOOGLE_OAUTH_REFRESH_TOKEN");
+    if (missing.length === 3) {
+      missing.length = 0;
+      missing.push("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN");
+      missing.push("(or alternatively GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY for a Shared Drive)");
+    } else if (missing.length < 3) {
+      missing.push("— one of the three GOOGLE_OAUTH_* variables is set but others are missing");
+    }
+    throw new Error(
+      `Google Drive storage is not configured on the server. Missing environment variables: ${missing.join(", ")}. `
+      + "Add them in Vercel → Settings → Environment Variables, then redeploy."
+    );
   }
   const privateKey = rawKey.replace(/\\n/g, "\n");
 

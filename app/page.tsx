@@ -3191,6 +3191,10 @@ export default function Home() {
                   </button>
                 </p>
               )}
+
+              <p className="auth-credit">
+                Made by Raihan <span className="footer-heart">✳</span> · Idea By Ambar
+              </p>
             </form>
           </div>
         </div>

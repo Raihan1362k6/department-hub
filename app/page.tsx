@@ -276,7 +276,6 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"neutral" | "error">("neutral");
   const [busy, setBusy] = useState(false);
-  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [announcementBusy, setAnnouncementBusy] = useState(false);
   const [announcementError, setAnnouncementError] = useState("");
@@ -646,27 +645,6 @@ export default function Home() {
       setModal("forgot");
       setNotice("Use the form below to set a new password.");
     }
-  }, []);
-
-  // Show "Continue with Google" only once the Supabase project has the Google
-  // provider enabled. A disabled provider answers the authorize URL with a JSON
-  // error page, so the state is checked server-side instead of on click.
-  useEffect(() => {
-    if (!configured) return;
-
-    let active = true;
-    fetch("/api/auth/google/status", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload) => {
-        if (active) setGoogleEnabled(Boolean(payload?.enabled));
-      })
-      .catch(() => {
-        if (active) setGoogleEnabled(false);
-      });
-
-    return () => {
-      active = false;
-    };
   }, []);
 
   // Surface OAuth errors (for example a non-college Google account rejected by
@@ -1502,6 +1480,18 @@ export default function Home() {
     setNoticeTone("neutral");
 
     try {
+      // Google OAuth is enabled in the Supabase dashboard, not in code. Check
+      // first so a disabled provider shows a friendly message here instead of
+      // navigating to Supabase's raw JSON error page.
+      const statusRes = await fetch("/api/auth/google/status", { cache: "no-store" }).catch(() => null);
+      const statusPayload = statusRes?.ok ? await statusRes.json().catch(() => null) : null;
+      if (!statusPayload?.enabled) {
+        showNotice("Google sign-in is not switched on yet. Please use your college email and password.", "error");
+        setBusy(false);
+        setGoogleBusy(false);
+        return;
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -3242,7 +3232,7 @@ export default function Home() {
             )}
 
             <form className="form-stack" onSubmit={(e) => authSubmit(e, authMode === "signup" ? "signup" : authMode === "forgot" ? "forgot" : "login")}>
-              {(authMode === "login" || authMode === "signup") && googleEnabled && (
+              {(authMode === "login" || authMode === "signup") && (
                 <>
                   <button type="button" className="google-btn" onClick={signInWithGoogle} disabled={busy || googleBusy}>
                     <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">

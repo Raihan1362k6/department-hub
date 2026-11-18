@@ -276,6 +276,8 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"neutral" | "error">("neutral");
   const [busy, setBusy] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [announcementBusy, setAnnouncementBusy] = useState(false);
   const [announcementError, setAnnouncementError] = useState("");
   const [announcementEditTarget, setAnnouncementEditTarget] = useState<Announcement | null>(null);
@@ -646,6 +648,59 @@ export default function Home() {
     }
   }, []);
 
+  // Show "Continue with Google" only once the Supabase project has the Google
+  // provider enabled. A disabled provider answers the authorize URL with a JSON
+  // error page, so the state is checked server-side instead of on click.
+  useEffect(() => {
+    if (!configured) return;
+
+    let active = true;
+    fetch("/api/auth/google/status", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (active) setGoogleEnabled(Boolean(payload?.enabled));
+      })
+      .catch(() => {
+        if (active) setGoogleEnabled(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Surface OAuth errors (for example a non-college Google account rejected by
+  // the database trigger) instead of leaving them in the URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const search = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const errorCode = search.get("error") || hash.get("error") || search.get("error_code") || hash.get("error_code");
+    if (!errorCode) return;
+
+    if (errorCode !== "access_denied") {
+      const description = search.get("error_description") || hash.get("error_description") || "";
+      let decoded = description;
+      try {
+        decoded = decodeURIComponent(description.replace(/\+/g, " "));
+      } catch {
+        decoded = description;
+      }
+      const friendly = /database error|only approved department/i.test(decoded)
+        ? `Only ${collegeName} department accounts can sign in here.`
+        : decoded.trim() || "Google sign-in could not be completed.";
+      showNotice(friendly, "error");
+    }
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.hash = "";
+    nextUrl.searchParams.delete("error");
+    nextUrl.searchParams.delete("error_code");
+    nextUrl.searchParams.delete("error_description");
+    window.history.replaceState({}, "", nextUrl.pathname + nextUrl.search);
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -714,6 +769,49 @@ export default function Home() {
       } catch {
         localStorage.removeItem(SESSION_KEY);
       }
+
+      // Returned from Google sign-in (or a still-valid Supabase session with no
+      // local app session): adopt it and load the matching profile.
+      if (!localStorage.getItem(SESSION_KEY) && configured && supabase) {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const session = sessionData.session;
+          const sessionEmail = session?.user?.email?.toLowerCase() || "";
+
+          if (session && sessionEmail) {
+            if (!isAllowedDepartmentEmail(sessionEmail)) {
+              await supabase.auth.signOut();
+              showNotice(`Only ${collegeName} department accounts can sign in here.`, "error");
+            } else {
+              const { data: profileRow } = await supabase
+                .from("profiles")
+                .select("email, full_name, role")
+                .eq("email", sessionEmail)
+                .maybeSingle();
+
+              const role = sessionEmail === adminEmail
+                ? "admin"
+                : (profileRow?.role as Role | undefined) || "student";
+              const fullName = (profileRow?.full_name as string | null)
+                || (session.user.user_metadata?.full_name as string | undefined)
+                || (session.user.user_metadata?.name as string | undefined)
+                || sessionEmail;
+
+              setProfile({ id: session.user.id, email: sessionEmail, full_name: fullName, role, status: "active" });
+              setModal(null);
+              showNotice(`Logged in as ${fullName}.`);
+
+              // Drop the OAuth tokens from the address bar once adopted.
+              if (window.location.hash) {
+                window.history.replaceState({}, "", window.location.pathname + window.location.search);
+              }
+            }
+          }
+        } catch {
+          // Manual sign-in still works if the session cannot be read.
+        }
+      }
+
       setIsSessionReady(true);
     };
 
@@ -1390,6 +1488,43 @@ export default function Home() {
     setModal(null);
     setNotice(`Logged in as ${(profileRow?.full_name as string | null) || data.user?.user_metadata?.full_name || (userEmail.toLowerCase() === adminEmail.toLowerCase() ? "Department Admin" : userEmail)}.`);
     setBusy(false);
+  }
+
+  async function signInWithGoogle() {
+    if (!configured || !supabase) {
+      showNotice("Google sign-in is not available right now.", "error");
+      return;
+    }
+
+    setBusy(true);
+    setGoogleBusy(true);
+    setNotice("");
+    setNoticeTone("neutral");
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}${window.location.pathname}`,
+          queryParams: {
+            prompt: "select_account",
+            hd: allowedEmailDomain,
+          },
+        },
+      });
+
+      if (error) {
+        showNotice(error.message || "Could not start Google sign-in.", "error");
+        setBusy(false);
+        setGoogleBusy(false);
+      }
+      // On success Supabase redirects the browser to Google; the session is
+      // adopted when the user comes back.
+    } catch {
+      showNotice("Could not start Google sign-in.", "error");
+      setBusy(false);
+      setGoogleBusy(false);
+    }
   }
 
   function handleAddSubject() {
@@ -3107,6 +3242,21 @@ export default function Home() {
             )}
 
             <form className="form-stack" onSubmit={(e) => authSubmit(e, authMode === "signup" ? "signup" : authMode === "forgot" ? "forgot" : "login")}>
+              {(authMode === "login" || authMode === "signup") && googleEnabled && (
+                <>
+                  <button type="button" className="google-btn" onClick={signInWithGoogle} disabled={busy || googleBusy}>
+                    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                    </svg>
+                    <span>{googleBusy ? "Opening Google…" : "Continue with Google"}</span>
+                  </button>
+                  <div className="auth-divider"><span>or use your college email</span></div>
+                </>
+              )}
+
               {authMode === "signup" && (
                 <Field label="Full name">
                   <input name="name" required placeholder="Your name" />

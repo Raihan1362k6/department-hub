@@ -1270,17 +1270,17 @@ export default function Home() {
       }
 
       const name = String(fd.get("name") || "Student User").trim() || "Student User";
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: name },
-          emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
-        },
+      // Accounts are created server-side with the service key so signup never
+      // depends on Supabase's (unconfigured) confirmation emails.
+      const signupRes = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, fullName: name }),
       });
 
-      if (error) {
-        showNotice(error.message || "Unable to create the account right now.", "error");
+      if (!signupRes.ok) {
+        const payload = await signupRes.json().catch(() => null);
+        showNotice(payload?.error || "Unable to create the account right now.", "error");
         setBusy(false);
         return;
       }
@@ -1293,7 +1293,7 @@ export default function Home() {
 
       setProfile(null);
       setModal("login");
-      setNotice(`A verification link has been sent to ${email}. Please confirm your email before signing in.`);
+      setNotice("Account created. Sign in with your password.");
       setNoticeTone("neutral");
 
       setBusy(false);

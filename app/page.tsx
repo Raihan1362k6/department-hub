@@ -1206,12 +1206,6 @@ export default function Home() {
     );
   }, [STORAGE_KEY, members, materials, subjectFolders, demoPasswords, announcements, assignments, completions, semester, pyqCourses, pyqFiles, courseSyllabi]);
 
-  useEffect(() => {
-    if (!profile && modal === null && isSessionReady) {
-      setModal("login");
-    }
-  }, [profile, modal, isSessionReady]);
-
   async function authSubmit(e: React.FormEvent<HTMLFormElement>, mode: "login" | "signup" | "forgot") {
     e.preventDefault();
     setBusy(true);
@@ -3192,6 +3186,206 @@ export default function Home() {
 
   if (!profile) {
     const authMode = modal ?? "login";
+    const showAuthForm = modal === "login" || modal === "signup" || modal === "forgot";
+
+    // Public overview page shown to signed-out visitors. It is rendered on the
+    // server as well, so the site's purpose, features and policy links are
+    // readable without signing in (required for Google OAuth verification).
+    if (!showAuthForm) {
+      return (
+        <main className={`app-shell landing-shell ${themeMode === "dark" ? "theme-dark" : ""}`}>
+          <div className="photo-bg" />
+          <div className="photo-overlay" />
+          <ElectricalBackground />
+
+          <div className="landing-inner">
+            <header className="landing-nav">
+              <a className="landing-brand" href="/">
+                <img src="/icon.png" alt="IIEST EE'30 logo" width={40} height={40} />
+                <span>
+                  <b>{"IIEST EE'30"}</b>
+                  <small>ELECTRICAL ENGINEERING · IIEST SHIBPUR</small>
+                </span>
+              </a>
+              <nav className="landing-nav-links" aria-label="Site information">
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+                <button type="button" className="landing-signin" onClick={() => setModal("login")}>
+                  Sign in
+                </button>
+              </nav>
+            </header>
+
+            <section className="landing-hero">
+              <div className="landing-hero-copy">
+                <span className="landing-badge">
+                  <Sparkles size={13} />
+                  BATCH HUB · CLASS OF 2030
+                </span>
+                <h1>
+                  Your department, <em>in sync.</em>
+                </h1>
+                <p>
+                  {"IIEST EE'30"} is a private study hub for the Electrical Engineering batch of 2030 at IIEST
+                  Shibpur. It keeps class notes, e-books, previous-year questions, syllabi, announcements and
+                  assignment deadlines in one calm place, shared only with verified batchmates.
+                </p>
+                <div className="landing-actions">
+                  <button type="button" className="primary-btn" onClick={() => setModal("login")}>
+                    Sign in or create an account
+                    <ArrowUpRight size={15} />
+                  </button>
+                  <a className="secondary-btn" href="/privacy">
+                    Read our privacy policy
+                  </a>
+                </div>
+                <ul className="landing-trust">
+                  <li>
+                    <ShieldCheck size={14} /> College accounts only
+                  </li>
+                  <li>
+                    <Check size={14} /> No ads, no tracking
+                  </li>
+                  <li>
+                    <Users size={14} /> Built by students
+                  </li>
+                </ul>
+              </div>
+
+              <aside className="landing-hero-card" aria-label="What is inside the hub">
+                <div className="landing-card-head">
+                  <span className="eyebrow">INSIDE THE HUB</span>
+                </div>
+                <ul className="landing-mini-list">
+                  <li>
+                    <span><FolderOpen size={15} /></span>
+                    <div>
+                      <b>Subject folders</b>
+                      <small>Notes grouped by course and semester</small>
+                    </div>
+                  </li>
+                  <li>
+                    <span><BookOpen size={15} /></span>
+                    <div>
+                      <b>E-Books and syllabi</b>
+                      <small>Reference books, PDFs and the official syllabus</small>
+                    </div>
+                  </li>
+                  <li>
+                    <span><FileText size={15} /></span>
+                    <div>
+                      <b>Previous-year questions</b>
+                      <small>Organised by course and exam type</small>
+                    </div>
+                  </li>
+                  <li>
+                    <span><Bell size={15} /></span>
+                    <div>
+                      <b>Notices and deadlines</b>
+                      <small>Announcements and assignment tracking</small>
+                    </div>
+                  </li>
+                  <li>
+                    <span><Users size={15} /></span>
+                    <div>
+                      <b>Batch directory</b>
+                      <small>Who is who in EE 2030</small>
+                    </div>
+                  </li>
+                </ul>
+                <small>Everything above is visible only after you sign in with your college account.</small>
+              </aside>
+            </section>
+
+            <section className="landing-section">
+              <div className="landing-section-head">
+                <span className="eyebrow">WHAT YOU GET</span>
+                <h2>One place for everything the batch shares</h2>
+              </div>
+              <div className="landing-features">
+                <article className="landing-feature">
+                  <span><FolderOpen size={18} /></span>
+                  <h3>Material by subject</h3>
+                  <p>Handwritten notes, digital notes, class links and e-books sorted into course folders.</p>
+                </article>
+                <article className="landing-feature">
+                  <span><FileText size={18} /></span>
+                  <h3>PYQ archive</h3>
+                  <p>Previous-year papers filed by course and exam type, ready before every test.</p>
+                </article>
+                <article className="landing-feature">
+                  <span><BookOpen size={18} /></span>
+                  <h3>Syllabus, always current</h3>
+                  <p>Each course keeps its latest syllabus attached so nobody studies from an old copy.</p>
+                </article>
+                <article className="landing-feature">
+                  <span><Bell size={18} /></span>
+                  <h3>Announcements</h3>
+                  <p>Notices from monitors and admins, with important ones pinned at the top.</p>
+                </article>
+                <article className="landing-feature">
+                  <span><CalendarDays size={18} /></span>
+                  <h3>Assignments</h3>
+                  <p>Deadlines, attachments and a personal tick-box so nothing slips.</p>
+                </article>
+                <article className="landing-feature">
+                  <span><LayoutDashboard size={18} /></span>
+                  <h3>Your semester at a glance</h3>
+                  <p>Dashboard with the current semester, latest material and what is due next.</p>
+                </article>
+              </div>
+            </section>
+
+            <section className="landing-about">
+              <div>
+                <h2>About this application</h2>
+                <p>
+                  {"IIEST EE'30"} exists so that one batch of Electrical Engineering students can share academic
+                  material, notices and deadlines without scattered group chats or lost PDFs. It is a small,
+                  non-commercial study tool, built and maintained by students of the batch.
+                </p>
+                <p>
+                  Accounts are limited to students of the batch who hold a{" "}
+                  <b>@students.iiests.ac.in</b> college account. There is no public sign-up, no advertising, no
+                  analytics tracking, and nothing on the site is visible without signing in.
+                </p>
+                <p>
+                  The site is not an official service of IIEST Shibpur or the Department of Electrical Engineering,
+                  and nothing on it is an official notice, result or academic record.
+                </p>
+              </div>
+              <div>
+                <h2>How Google is used</h2>
+                <p>
+                  Signing in with Google is optional and uses only the <code>openid</code>, <code>email</code> and{" "}
+                  <code>profile</code> scopes, so we receive your name, college email address and basic profile
+                  picture. We never request access to your Gmail, contacts, calendar or personal Google Drive.
+                </p>
+                <p>
+                  Files that admins upload are stored in a private folder in the hub&rsquo;s own Google Drive account,
+                  accessed by the server with its own credentials. No Google API is used to generate, edit or
+                  distribute images, audio, video or any other synthetic media, and the hub does not accept
+                  AI-generated non-consensual intimate imagery or similar material.
+                </p>
+                <p>
+                  Full details are in our <a href="/privacy">Privacy Policy</a> and{" "}
+                  <a href="/terms">Terms of Service</a>.
+                </p>
+              </div>
+            </section>
+
+            <footer className="landing-footer">
+              <span>© 2026 {"IIEST EE'30"} · Student-run hub for EE 2030, IIEST Shibpur</span>
+              <span className="landing-footer-links">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="mailto:2026eeb061.raihan@students.iiests.ac.in">Contact</a>
+              </span>
+            </footer>
+          </div>
+        </main>
+      );
+    }
 
     if (!isSessionReady) {
       return (
@@ -3225,6 +3419,9 @@ export default function Home() {
         <ElectricalBackground />
         <div className="modal-backdrop auth-gate-backdrop">
           <div className="modal auth-gate-modal">
+            <button type="button" className="auth-back" onClick={() => setModal(null)}>
+              <ArrowLeft size={13} /> Back to overview
+            </button>
             <div className="modal-head">
               <div>
                 <span className="eyebrow">{"IIEST EE'30"}</span>

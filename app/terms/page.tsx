@@ -47,6 +47,10 @@ export default function TermsOfServicePage() {
           right to distribute.
         </li>
         <li>Upload malware, or files that are illegal, abusive, hateful, harassing or unrelated to coursework.</li>
+        <li>
+          Upload, generate or share AI-generated non-consensual intimate imagery (AI NCII), sexually explicit content,
+          deepfakes, or any synthetic image, audio or video of a real person without their consent.
+        </li>
         <li>Attempt to access other members&rsquo; accounts, admin-only features, the database, or the server&rsquo;s credentials.</li>
         <li>Scrape, mirror or bulk-download the archive, or use the site to send spam.</li>
         <li>Interfere with the site&rsquo;s operation, probe it for vulnerabilities without permission, or overload it.</li>
@@ -103,13 +107,34 @@ export default function TermsOfServicePage() {
         title and a short description of your rights. We remove or unpublish disputed material promptly.
       </p>
 
-      <h2>12. Governing law</h2>
+      <h2>12. Google API terms</h2>
+      <p>
+        The hub uses Google APIs for two optional functions: Google sign-in, and storage of uploaded study files in
+        the hub&rsquo;s own Google Drive folder. By using these functions you agree to comply with the{" "}
+        <a href="https://developers.google.com/terms" target="_blank" rel="noreferrer">
+          Google APIs Terms of Service
+        </a>{" "}
+        and the{" "}
+        <a
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Google API Services User Data Policy
+        </a>
+        . The hub uses Google user data only to provide the features described in the Privacy Policy, does not sell it
+        or use it for advertising, and does not use Google APIs to create or distribute AI-generated non-consensual
+        intimate imagery or any other prohibited content. If you become aware of content on the hub that breaches these
+        terms, report it to the contact address below.
+      </p>
+
+      <h2>13. Governing law</h2>
       <p>
         These terms are governed by the laws of India, and disputes are subject to the jurisdiction of the courts at
         Howrah / Kolkata, West Bengal.
       </p>
 
-      <h2>13. Contact</h2>
+      <h2>14. Contact</h2>
       <p>
         Questions about these terms:{" "}
         <a href="mailto:2026eeb061.raihan@students.iiests.ac.in">2026eeb061.raihan@students.iiests.ac.in</a>.

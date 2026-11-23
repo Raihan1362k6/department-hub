@@ -3207,6 +3207,11 @@ export default function Home() {
                   <h2>Loading your session…</h2>
                 </div>
               </div>
+              <p className="auth-legal">
+                <a href="/privacy">Privacy Policy</a>
+                <span>·</span>
+                <a href="/terms">Terms of Service</a>
+              </p>
             </div>
           </div>
         </main>
@@ -3334,6 +3339,12 @@ export default function Home() {
 
               <p className="auth-credit">
                 Made by Raihan <span className="footer-heart">✳</span> · Idea By Ambar
+              </p>
+
+              <p className="auth-legal">
+                <a href="/privacy">Privacy Policy</a>
+                <span>·</span>
+                <a href="/terms">Terms of Service</a>
               </p>
             </form>
           </div>
@@ -4178,6 +4189,11 @@ export default function Home() {
 
         <footer className="footer">
           <span>© 2026 {"IIEST EE'30"}</span>
+          <span className="footer-legal">
+            <a href="/privacy">Privacy Policy</a>
+            <span>·</span>
+            <a href="/terms">Terms of Service</a>
+          </span>
           <span>
             Made by Raihan <span className="footer-heart">✳</span> · Idea By Ambar
           </span>

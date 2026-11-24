@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractDriveFileId, fetchDriveFile } from "@/lib/drive";
+import { createDownloadUrl, isR2Configured, isR2Url, r2KeyFromUrl } from "@/lib/r2";
 
 const mimeMap: Record<string, string> = {
   pdf: "application/pdf",
@@ -51,6 +52,30 @@ export async function GET(req: NextRequest) {
 
     if (!fileUrl) {
       return NextResponse.json({ error: "Missing file URL" }, { status: 400 });
+    }
+
+    // Cloudflare R2 objects: hand the browser a short-lived presigned URL so
+    // the bytes come straight from Cloudflare instead of through this function.
+    if (isR2Url(fileUrl)) {
+      if (!isR2Configured()) {
+        return NextResponse.json({ error: "File storage is not configured." }, { status: 503 });
+      }
+      const key = r2KeyFromUrl(fileUrl);
+      if (!key) {
+        return NextResponse.json({ error: "Missing file key" }, { status: 400 });
+      }
+
+      const storedName = (key.split("/").pop() || "document").replace(/^[0-9a-f-]{36}-/i, "");
+      const downloadName = filename && filename.includes(".")
+        ? filename
+        : storedName.includes(".")
+          ? storedName
+          : `${filename || storedName}.pdf`;
+
+      const ext = downloadName.split(".").pop()?.toLowerCase() || "";
+      const contentType = mimeMap[ext] || null;
+      const signedUrl = await createDownloadUrl(key, downloadName, contentType, 300);
+      return NextResponse.redirect(signedUrl, 302);
     }
 
     let arrayBuffer: ArrayBuffer;

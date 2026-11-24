@@ -62,7 +62,8 @@ export default function TermsOfServicePage() {
         You keep ownership of what you upload. By posting it you give the hub permission to store, display and let
         other signed-in batch members download it for study purposes. Only upload material you wrote, material you
         have permission to share, or links to legally available resources. Files are stored in the hub&rsquo;s private
-        Google Drive folder rather than your own Drive.
+        Cloudflare R2 bucket rather than in your own storage account, and are only served to signed-in members
+        through short-lived signed links.
       </p>
 
       <h2>6. Moderation</h2>

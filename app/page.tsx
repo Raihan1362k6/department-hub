@@ -468,130 +468,67 @@ export default function Home() {
       throw new Error("File is too large. Maximum allowed size is 100 MB.");
     }
 
-    // Vercel serverless functions reject request bodies larger than ~4.5 MB
-    // (FUNCTION_PAYLOAD_TOO_LARGE), which made every bigger upload die with a
-    // generic "Upload failed". For anything above 4 MB, start a resumable
-    // session on the server and stream the file straight to Google Drive from
-    // the browser — the large body never passes through Vercel.
-    const VERCEL_BODY_LIMIT = 4 * 1024 * 1024;
-    if (file.size > VERCEL_BODY_LIMIT) {
-      setUploadProgress(`Preparing upload for ${file.name}…`);
+    // Vercel rejects request bodies larger than ~4.5 MB, so the browser never
+    // posts file bytes here. It asks for a presigned PUT URL and streams the
+    // file straight to Cloudflare R2; only the object key comes back.
+    setUploadProgress(`Preparing upload for ${file.name}…`);
 
-      try {
-        const initRes = await fetch("/api/upload/init", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: await getStaffAuthorizationHeader(),
-          },
-          body: JSON.stringify({
-            fileName: file.name,
-            size: file.size,
-            contentType: file.type || "application/octet-stream",
-            purpose: purpose ?? null,
-          }),
-        });
-
-        if (!initRes.ok) {
-          const errJson = await initRes.json().catch(() => null);
-          throw new Error(errJson?.error || "Could not start the upload. Please try again.");
-        }
-
-        const { uploadUrl } = await initRes.json();
-        if (!uploadUrl) {
-          throw new Error("Could not start the upload. Please try again.");
-        }
-
-        const putOutcome = await new Promise<{ status: number; text: string }>((resolve) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", uploadUrl);
-          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              setUploadProgress(`Uploading ${file.name}… ${percent}%`);
-            }
-          };
-          xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText || "" });
-          // A status of 0 means the browser blocked Google's response (CORS) —
-          // the upload itself may still have succeeded, so resolve and verify
-          // server-side instead of failing here.
-          xhr.onerror = () => resolve({ status: 0, text: "" });
-          xhr.send(file);
-        });
-
-        let driveFileId: string | null = null;
-        try {
-          const parsed = putOutcome.text ? JSON.parse(putOutcome.text) : null;
-          driveFileId = parsed?.id ?? null;
-        } catch {
-          driveFileId = null;
-        }
-
-        if (!driveFileId) {
-          // Google's PUT response is not CORS-readable from the browser —
-          // confirm the finished file server-side by name and byte size.
-          setUploadProgress(`Finishing upload for ${file.name}…`);
-          try {
-            const lookupRes = await fetch(
-              `/api/upload/lookup?name=${encodeURIComponent(file.name)}&size=${String(file.size)}`,
-              { headers: { Authorization: await getStaffAuthorizationHeader() } }
-            );
-            if (lookupRes.ok) {
-              const result = await lookupRes.json().catch(() => null);
-              driveFileId = result?.fileId ?? null;
-            }
-          } catch {
-            // fall through to the error below
-          }
-        }
-
-        if (!driveFileId) {
-          const completedBlind = putOutcome.status === 0 || (putOutcome.status >= 200 && putOutcome.status < 300);
-          throw new Error(
-            completedBlind
-              ? "Upload finished but could not be verified. Please try again."
-              : `Upload failed (${putOutcome.status}). Please try again.`
-          );
-        }
-
-        return {
-          url: `https://drive.google.com/uc?export=download&id=${driveFileId}`,
+    try {
+      const contentType = file.type || "application/octet-stream";
+      const initRes = await fetch("/api/upload/init", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: await getStaffAuthorizationHeader(),
+        },
+        body: JSON.stringify({
           fileName: file.name,
-        };
-      } finally {
-        setUploadProgress(null);
+          size: file.size,
+          contentType,
+          purpose: purpose ?? null,
+        }),
+      });
+
+      if (!initRes.ok) {
+        const errJson = await initRes.json().catch(() => null);
+        throw new Error(errJson?.error || "Could not start the upload. Please try again.");
       }
+
+      const init = await initRes.json().catch(() => null);
+      const uploadUrl = init?.uploadUrl as string | undefined;
+      const storedUrl = init?.url as string | undefined;
+      if (!uploadUrl || !storedUrl) {
+        throw new Error("Could not start the upload. Please try again.");
+      }
+
+      const status = await new Promise<number>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", contentType);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            setUploadProgress(`Uploading ${file.name}… ${percent}%`);
+          }
+        };
+        xhr.onload = () => resolve(xhr.status);
+        // status 0 means the browser blocked the response (CORS or network).
+        xhr.onerror = () => resolve(0);
+        xhr.ontimeout = () => resolve(0);
+        xhr.send(file);
+      });
+
+      if (status === 0) {
+        throw new Error("The upload was blocked by the browser. Check your connection and try again.");
+      }
+      if (status < 200 || status >= 300) {
+        throw new Error(`Upload failed (${status}). Please try again.`);
+      }
+
+      return { url: storedUrl, fileName: file.name };
+    } finally {
+      setUploadProgress(null);
     }
-
-    setUploadProgress(`Uploading ${file.name}…`);
-
-    const formData = new FormData();
-    formData.append("file", file);
-    if (purpose) formData.append("purpose", purpose);
-
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      headers: { Authorization: await getStaffAuthorizationHeader() },
-      body: formData,
-    });
-
-    setUploadProgress(null);
-
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => null);
-      throw new Error(errJson?.error || "Upload failed. Please try again.");
-    }
-
-    const payload = await response.json();
-    if (!payload?.url) {
-      throw new Error("Upload succeeded but no URL was returned.");
-    }
-
-    return {
-      url: payload.url,
-      fileName: payload.fileName || file.name,
-    };
   }
 
   async function getStaffAuthorizationHeader(): Promise<string> {
@@ -3362,10 +3299,11 @@ export default function Home() {
                   picture. We never request access to your Gmail, contacts, calendar or personal Google Drive.
                 </p>
                 <p>
-                  Files that admins upload are stored in a private folder in the hub&rsquo;s own Google Drive account,
-                  accessed by the server with its own credentials. No Google API is used to generate, edit or
-                  distribute images, audio, video or any other synthetic media, and the hub does not accept
-                  AI-generated non-consensual intimate imagery or similar material.
+                  Files that admins upload are stored in a private Cloudflare R2 bucket, accessed by the server with
+                  its own credentials, and are only served to signed-in members through short-lived signed links. No
+                  Google API is used to generate, edit or distribute images, audio, video or any other synthetic
+                  media, and the hub does not accept AI-generated non-consensual intimate imagery or similar
+                  material.
                 </p>
                 <p>
                   Full details are in our <a href="/privacy">Privacy Policy</a> and{" "}

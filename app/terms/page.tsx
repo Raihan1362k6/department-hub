@@ -109,8 +109,9 @@ export default function TermsOfServicePage() {
 
       <h2>12. Google API terms</h2>
       <p>
-        The hub uses Google APIs for two optional functions: Google sign-in, and storage of uploaded study files in
-        the hub&rsquo;s own Google Drive folder. By using these functions you agree to comply with the{" "}
+        The hub uses Google APIs for one optional function only: Google sign-in. Uploaded study files are stored in
+        our own private Cloudflare R2 bucket, not in Google Drive. If you use Google sign-in you agree to comply with
+        the{" "}
         <a href="https://developers.google.com/terms" target="_blank" rel="noreferrer">
           Google APIs Terms of Service
         </a>{" "}

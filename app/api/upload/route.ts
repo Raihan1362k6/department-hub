@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import { getDriveAccessToken } from "@/lib/drive";
+import { buildObjectKey, isR2Configured, putObject, r2UrlFor } from "@/lib/r2";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -9,12 +8,15 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   || process.env.SUPABASE_ANON_KEY
   || "";
 
-const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
-
+// Small-file fallback upload. Files above ~4 MB take the presigned-URL path in
+// /api/upload/init so the body never passes through Vercel.
 export async function POST(req: NextRequest) {
   try {
     if (!supabaseUrl || !anonKey) {
       return NextResponse.json({ error: "Supabase upload authorization is not configured." }, { status: 503 });
+    }
+    if (!isR2Configured()) {
+      return NextResponse.json({ error: "File storage is not configured." }, { status: 503 });
     }
 
     const accessToken = req.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -69,55 +71,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `${purpose === "syllabus" ? "Syllabus" : "Assignment"} files must be valid PDF documents.` }, { status: 400 });
     }
 
-    const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const mimeType = file.type || "application/octet-stream";
+    const key = buildObjectKey(file.name, purpose === "syllabus" || purpose === "assignment" ? purpose : null);
 
-    const driveToken = await getDriveAccessToken();
+    await putObject(key, buffer, mimeType);
 
-    const metadata: Record<string, unknown> = { name: originalName, mimeType };
-    if (driveFolderId) metadata.parents = [driveFolderId];
-
-    const boundary = `dept-hub-${crypto.randomUUID()}`;
-    const multipartBody = Buffer.concat([
-      Buffer.from(
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
-      ),
-      buffer,
-      Buffer.from(`\r\n--${boundary}--`),
-    ]);
-
-    const uploadRes = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,size,mimeType",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${driveToken}`,
-          "Content-Type": `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartBody,
-      }
-    );
-
-    if (!uploadRes.ok) {
-      const detail = await uploadRes.text().catch(() => "");
-      console.error("Google Drive upload failed:", uploadRes.status, detail.slice(0, 500));
-      return NextResponse.json({ error: `Google Drive upload failed (${uploadRes.status}).` }, { status: 500 });
-    }
-
-    const driveFile = await uploadRes.json();
-    const driveFileId = driveFile.id as string;
-
-    // Store a stable Drive URL. Downloads are proxied through /api/download,
-    // which streams the file with the service account (files stay private).
-    const storedUrl = `https://drive.google.com/uc?export=download&id=${driveFileId}`;
-
+    // Only the object key is stored in the database. Downloads are proxied
+    // through /api/download, which redirects to a short-lived presigned URL so
+    // the bucket itself stays private.
     return NextResponse.json({
-      url: storedUrl,
-      previewUrl: `https://drive.google.com/file/d/${driveFileId}/preview`,
-      publicId: driveFileId,
+      url: r2UrlFor(key),
+      publicId: key,
       fileName: file.name,
       size: file.size,
-      contentType: file.type,
+      contentType: mimeType,
       resourceType: "raw",
     });
   } catch (err: any) {

@@ -10,6 +10,10 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
 
+// Legacy endpoint from the Google Drive upload flow. Kept only so old clients
+// get a clear response; new uploads confirm themselves directly with R2.
+export const dynamic = "force-dynamic";
+
 // Google Drive's resumable-upload session URI does not return a
 // CORS-readable response to browser PUTs (the upload itself succeeds, but the
 // JSON body with the new file id is unreadable from JS). The browser therefore

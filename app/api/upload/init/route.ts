@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getDriveAccessToken } from "@/lib/drive";
+import { buildObjectKey, createUploadUrl, isR2Configured, r2UrlFor } from "@/lib/r2";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -8,13 +8,11 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   || process.env.SUPABASE_ANON_KEY
   || "";
 
-const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
-
 // Vercel serverless functions reject request bodies larger than ~4.5 MB
 // (FUNCTION_PAYLOAD_TOO_LARGE), so large files cannot be streamed through
-// /api/upload. This endpoint instead starts a Google Drive *resumable upload
-// session* and hands the session URI back to the browser, which then streams
-// the file directly to Google — no request body ever passes through Vercel.
+// /api/upload. This endpoint instead returns a presigned PUT URL and the
+// browser streams the file straight to Cloudflare R2 — no request body ever
+// passes through Vercel.
 
 export async function POST(req: NextRequest) {
   try {
@@ -74,38 +72,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `${purpose === "syllabus" ? "Syllabus" : "Assignment"} files must be PDF documents.` }, { status: 400 });
     }
 
-    const driveToken = await getDriveAccessToken();
-
-    const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const metadata: Record<string, unknown> = { name: safeName, mimeType: contentType };
-    if (driveFolderId) metadata.parents = [driveFolderId];
-
-    const initRes = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size,mimeType",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${driveToken}`,
-          "Content-Type": "application/json; charset=UTF-8",
-          "X-Upload-Content-Type": contentType,
-          "X-Upload-Content-Length": String(size),
-        },
-        body: JSON.stringify(metadata),
-      }
-    );
-
-    if (!initRes.ok) {
-      const detail = await initRes.text().catch(() => "");
-      console.error("Google Drive resumable session failed:", initRes.status, detail.slice(0, 500));
-      return NextResponse.json({ error: `Google Drive session could not be started (${initRes.status}).` }, { status: 500 });
+    if (!isR2Configured()) {
+      return NextResponse.json({ error: "File storage is not configured." }, { status: 503 });
     }
 
-    const uploadUrl = initRes.headers.get("location") || initRes.headers.get("x-goog-upload-url");
-    if (!uploadUrl) {
-      return NextResponse.json({ error: "Google Drive did not return an upload session. Please try again." }, { status: 500 });
-    }
+    const key = buildObjectKey(rawName, purpose);
+    const uploadUrl = await createUploadUrl(key, contentType);
 
-    return NextResponse.json({ uploadUrl });
+    return NextResponse.json({ uploadUrl, key, url: r2UrlFor(key), method: "PUT", contentType });
   } catch (err: any) {
     console.error("Upload session error:", err);
     return NextResponse.json({ error: err?.message || "Could not start the upload." }, { status: 500 });

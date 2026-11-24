@@ -78,17 +78,15 @@ export default function PrivacyPolicyPage() {
         Drive. Accounts from other domains are rejected and their returned data is discarded without being stored.
       </p>
       <p>
-        <b>b) File storage in our own Google Drive account.</b> Material that admins upload is stored in one private
-        folder inside a Google Drive account owned by the hub, never in a student&rsquo;s personal Drive. Our server
-        holds credentials for that single account in encrypted environment variables and uses the Google Drive API to
-        create files in that folder and to stream them back to signed-in members. The server does not browse, list or
-        read any other Google account, and students never grant the hub access to their own Drive.
+        <b>b) File storage in our own Cloudflare R2 bucket.</b> Material that admins upload is stored in one private
+        Cloudflare R2 bucket owned by the hub, never in a student&rsquo;s personal cloud drive. Our server holds the
+        bucket credentials in encrypted environment variables, writes uploads to that bucket, and hands signed-in
+        members short-lived signed download links. The bucket is not publicly readable and its contents are never
+        indexed or listed publicly.
       </p>
       <p>
-        We do not use Google user data to train or improve machine-learning models, we do not use it for advertising,
-        and we do not sell it. The hub does not generate, edit or distribute images, audio, video or any other
-        synthetic media through Google APIs, and it does not create or accept AI-generated non-consensual intimate
-        imagery.
+        No Google API is used to store, generate, edit or distribute files, images, audio, video or any other
+        synthetic media.
       </p>
       <div className="legal-note">
         <p>
@@ -146,7 +144,8 @@ export default function PrivacyPolicyPage() {
       <ul>
         <li><b>Supabase</b> — database, file metadata and authentication (hosted in the cloud).</li>
         <li><b>Vercel</b> — website hosting, request logs and content delivery.</li>
-        <li><b>Google</b> — optional Google sign-in, and Google Drive storage for uploaded study files.</li>
+        <li><b>Cloudflare R2</b> — private object storage for uploaded study files.</li>
+        <li><b>Google</b> — optional Google sign-in only.</li>
       </ul>
       <p>
         These providers process data on our instructions under their own terms and security commitments. Because they

@@ -714,7 +714,17 @@ export default function Home() {
 
               setProfile({ id: session.user.id, email: sessionEmail, full_name: fullName, role, status: "active" });
               setModal(null);
-              showNotice(`Logged in as ${fullName}.`);
+
+              // A first-time Google sign-in arrives with a brand-new Supabase
+              // user, so the profile row was just created by the database
+              // trigger. Greet that user as a signup rather than a login.
+              const createdAt = session.user.created_at ? Date.parse(session.user.created_at) : 0;
+              const isNewAccount = createdAt > 0 && Date.now() - createdAt < 120_000;
+              showNotice(
+                isNewAccount
+                  ? `Account created for ${fullName}. Welcome to ${departmentName}!`
+                  : `Logged in as ${fullName}.`,
+              );
 
               // Drop the OAuth tokens from the address bar once adopted.
               if (window.location.hash) {
@@ -1417,7 +1427,13 @@ export default function Home() {
       const statusRes = await fetch("/api/auth/google/status", { cache: "no-store" }).catch(() => null);
       const statusPayload = statusRes?.ok ? await statusRes.json().catch(() => null) : null;
       if (!statusPayload?.enabled) {
-        showNotice("Google sign-in is not switched on yet. Please use your college email and password.", "error");
+        const reason = String(statusPayload?.reason || "");
+        const message = reason === "provider_disabled"
+          ? "Google sign-in is not enabled in Supabase yet. An admin has to switch it on at Authentication → Providers → Google."
+          : reason === "redirect_not_allowed"
+            ? `Google sign-in is not allowed to return to this address yet. Add ${window.location.origin} to Supabase → Authentication → URL Configuration.`
+            : "Google sign-in is not switched on yet. Please use your college email and password.";
+        showNotice(message, "error");
         setBusy(false);
         setGoogleBusy(false);
         return;
@@ -3381,9 +3397,11 @@ export default function Home() {
                       <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
                       <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
                     </svg>
-                    <span>{googleBusy ? "Opening Google…" : "Continue with Google"}</span>
+                    <span>{googleBusy ? "Opening Google…" : authMode === "signup" ? "Sign up with Google" : "Continue with Google"}</span>
                   </button>
-                  <div className="auth-divider"><span>or use your college email</span></div>
+                  <div className="auth-divider">
+                    <span>{authMode === "signup" ? "or create an account with your college email" : "or use your college email"}</span>
+                  </div>
                 </>
               )}
 
